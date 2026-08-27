@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="UnterUns is a local-first social deduction game for your shared house. Real chores, private roles, no cloud."
+    />
+    <meta name="theme-color" content="#05040a" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>UnterUns — live social deduction at home</title>
+    <style>
+      :root {
+        --void: #05040a;
+        --ink: #0c0b14;
+        --panel: #14121e;
+        --panel-2: #1c1a2a;
+        --line: #2c2940;
+        --muted: #8b879c;
+        --fog: #f4f1ff;
+        --crew: #3ee0ff;
+        --imposter: #ff3557;
+        --warn: #ffb020;
+        --ok: #3ee07a;
+      }
+
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: var(--void);
+        color: var(--fog);
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      button, a { font: inherit; }
+      button { color: inherit; }
+      a { color: inherit; }
+      h1, h2, h3, p { margin-top: 0; }
+      h1, h2, h3, .display {
+        font-family: ui-rounded, "Arial Black", ui-sans-serif, system-ui, sans-serif;
+        text-transform: uppercase;
+      }
+      .wrap { width: min(1120px, calc(100% - 32px)); margin-inline: auto; }
+      .app-bg {
+        background:
+          radial-gradient(ellipse 90% 50% at 50% -15%, rgb(255 53 87 / 16%), transparent 55%),
+          radial-gradient(ellipse 70% 40% at 110% 110%, rgb(62 224 255 / 10%), transparent 50%),
+          var(--void);
+      }
+      .eyebrow {
+        color: var(--imposter);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+      }
+      .section-copy { max-width: 620px; margin-bottom: 42px; }
+      .section-copy h2 { margin-bottom: 14px; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; }
+      .section-copy p { color: var(--muted); }
+      section { padding: 96px 0; }
+
+      /* Navigation */
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid rgb(44 41 64 / 80%);
+        background: rgb(5 4 10 / 84%);
+        backdrop-filter: blur(14px);
+      }
+      nav .wrap { display: flex; min-height: 64px; align-items: center; justify-content: space-between; }
+      .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+      .brand-mark {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid rgb(255 53 87 / 40%);
+        border-radius: 12px;
+        background: rgb(255 53 87 / 10%);
+        color: var(--imposter);
+        font-weight: 950;
+      }
+      .brand-name { font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+      .navlinks { display: flex; align-items: center; gap: 24px; }
+      .navlinks a { color: var(--muted); font-size: 0.84rem; font-weight: 700; text-decoration: none; }
+      .navlinks a:hover { color: var(--fog); }
+      .navlinks .nav-cta { padding: 9px 14px; border: 1px solid var(--line); border-radius: 12px; color: var(--fog); }
+
+      /* Hero */
+      header { padding: 78px 0 96px; }
+      .hero-grid { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: 74px; align-items: center; }
+      h1 { max-width: 12ch; margin: 18px 0; font-size: clamp(3rem, 7vw, 5.9rem); line-height: 0.94; letter-spacing: -0.045em; }
+      h1 span { color: var(--imposter); }
+      .hero-copy { max-width: 56ch; color: var(--muted); font-size: 1.08rem; }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+      .btn {
+        display: inline-flex;
+        min-height: 52px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 20px;
+        border: 1px solid transparent;
+        border-radius: 16px;
+        font-weight: 800;
+        text-decoration: none;
+        transition: transform 0.15s, filter 0.15s;
+      }
+      .btn:hover { transform: translateY(-1px); filter: brightness(1.08); }
+      .btn-primary { background: var(--fog); color: var(--void); box-shadow: 0 0 24px rgb(244 241 255 / 12%); }
+      .btn-secondary { border-color: var(--line); background: rgb(28 26 42 / 80%); }
+
+      /* Exact mobile app shell */
+      .phone {
+        width: min(390px, 100%);
+        margin-inline: auto;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 36px;
+        background: var(--void);
+        box-shadow: 0 45px 100px rgb(0 0 0 / 50%), 0 0 70px rgb(255 53 87 / 8%);
+      }
+      .phone-screen {
+        min-height: 610px;
+        padding: 22px 18px;
+        background:
+          radial-gradient(ellipse 90% 50% at 50% -15%, rgb(255 53 87 / 16%), transparent 55%),
+          radial-gradient(ellipse 70% 40% at 110% 110%, rgb(62 224 255 / 10%), transparent 50%),
+          var(--void);
+      }
+      .phone-top { display: flex; align-items: center; justify-content: space-between; }
+      .mute {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        color: var(--muted);
+      }
+      .home-lockup { margin: 28px 0 20px; text-align: center; }
+      .device-box { margin-top: 18px; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: rgb(20 18 30 / 70%); }
+      .device-box p { margin: 4px 0 10px; color: var(--muted); font-size: 0.68rem; }
+      .device-row { display: flex; gap: 8px; }
+      .device-row .fake-field { flex: 1; min-height: 44px; justify-content: center; letter-spacing: 0.18em; font-size: 0.78rem; font-weight: 800; color: var(--muted); }
+      .device-connect { display: grid; min-height: 44px; place-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); font-size: 0.78rem; font-weight: 800; }
+      .uu {
+        display: grid;
+        width: 66px;
+        height: 66px;
+        margin: auto;
+        place-items: center;
+        border: 1px solid rgb(255 53 87 / 40%);
+        border-radius: 17px;
+        background: rgb(255 53 87 / 10%);
+        color: var(--imposter);
+        font-size: 1.45rem;
+        font-weight: 950;
+      }
+      .home-lockup h2 { margin: 18px 0 8px; font-size: 2.25rem; letter-spacing: 0.08em; }
+      .home-lockup p { max-width: 290px; margin-inline: auto; color: var(--muted); font-size: 0.84rem; }
+      .field-label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+      .fake-field {
+        display: flex;
+        min-height: 56px;
+        align-items: center;
+        padding: 0 15px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--panel);
+        color: var(--fog);
+      }
+      .fake-button {
+        display: grid;
+        min-height: 56px;
+        margin-top: 16px;
+        place-items: center;
+        border-radius: 16px;
+        background: var(--fog);
+        color: var(--void);
+        font-weight: 850;
+      }
+      .or { display: flex; align-items: center; gap: 12px; margin: 21px 0; color: var(--muted); font-size: 0.65rem; letter-spacing: 0.25em; text-transform: uppercase; }
+      .or::before, .or::after { height: 1px; flex: 1; background: var(--line); content: ""; }
+      .join-button { background: var(--crew); box-shadow: 0 0 28px rgb(62 224 255 / 25%); }
+
+      .trust-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        margin-top: 78px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgb(20 18 30 / 70%);
+      }
+      .trust-item { padding: 22px; text-align: center; }
+      .trust-item + .trust-item { border-left: 1px solid var(--line); }
+      .trust-item strong { display: block; color: var(--crew); font-size: 0.76rem; letter-spacing: 0.16em; text-transform: uppercase; }
+      .trust-item span { color: var(--muted); font-size: 0.8rem; }
+
+      /* Screen gallery */
+      .screens { border-block: 1px solid var(--line); background: var(--ink); }
+      .screen-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+      .game-card {
+        position: relative;
+        min-height: 500px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        background: var(--void);
+      }
+      .game-card-inner { position: relative; z-index: 1; display: flex; min-height: 500px; flex-direction: column; padding: 24px 18px; }
+      .glow-red::before, .glow-cyan::before, .glow-yellow::before {
+        position: absolute;
+        inset: 0;
+        content: "";
+        pointer-events: none;
+      }
+      .glow-red::before { background: radial-gradient(circle at 50% 42%, rgb(255 53 87 / 34%), transparent 58%); }
+      .glow-cyan::before { background: radial-gradient(circle at 50% 20%, rgb(62 224 255 / 16%), transparent 52%); }
+      .glow-yellow::before { background: radial-gradient(circle at 50% 35%, rgb(255 176 32 / 30%), transparent 58%); }
+      .card-kicker { color: var(--muted); font-size: 0.65rem; font-weight: 800; letter-spacing: 0.32em; text-align: center; text-transform: uppercase; }
+      .role-center { display: grid; flex: 1; place-items: center; text-align: center; }
+      .role-center h3 { margin: 8px 0 12px; color: var(--imposter); font-size: 2.8rem; letter-spacing: 0.05em; }
+      .role-center p { color: var(--fog); font-size: 0.88rem; }
+      .role-box { width: 100%; padding: 14px; border: 1px solid rgb(255 53 87 / 40%); border-radius: 16px; background: rgb(255 53 87 / 10%); }
+      .role-box span { color: var(--imposter); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+      .role-box strong { display: block; margin-top: 6px; }
+      .red-button { display: grid; min-height: 54px; place-items: center; border-radius: 16px; background: var(--imposter); font-weight: 850; box-shadow: 0 0 40px rgb(255 53 87 / 35%); }
+
+      .progress-panel { margin-top: 20px; padding: 15px; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); }
+      .progress-head { display: flex; align-items: end; justify-content: space-between; }
+      .progress-head span { color: var(--muted); font-size: 0.65rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+      .progress-head strong { font-size: 1.8rem; }
+      .track { height: 11px; margin-top: 12px; overflow: hidden; border-radius: 999px; background: var(--ink); }
+      .fill { width: 33%; height: 100%; border-radius: inherit; background: var(--ok); transition: width 0.25s; }
+      .progress-copy { margin: 8px 0 0; color: var(--muted); font-size: 0.7rem; }
+      .task-title { margin: 18px 0 8px; color: var(--muted); font-size: 0.67rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+      .task {
+        display: grid;
+        width: 100%;
+        grid-template-columns: 28px 1fr;
+        gap: 10px;
+        margin-top: 8px;
+        padding: 11px;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        background: rgb(28 26 42 / 80%);
+        cursor: pointer;
+        text-align: left;
+      }
+      .check { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid rgb(139 135 156 / 40%); border-radius: 6px; color: transparent; }
+      .task.done { border-color: rgb(62 224 122 / 30%); background: rgb(62 224 122 / 10%); }
+      .task.done .check { border-color: var(--ok); background: var(--ok); color: var(--void); }
+      .task.done .task-name { color: var(--muted); text-decoration: line-through; }
+      .room { display: block; margin-bottom: 2px; color: var(--crew); font-size: 0.58rem; font-weight: 850; letter-spacing: 0.12em; text-transform: uppercase; }
+      .task-name { display: block; font-size: 0.8rem; font-weight: 750; }
+
+      .meeting-center { display: grid; flex: 1; place-items: center; text-align: center; }
+      .meeting-center h3 { margin: 8px 0 10px; color: var(--warn); font-size: 2.35rem; letter-spacing: 0.05em; }
+      .meeting-center p { color: var(--muted); font-size: 0.82rem; }
+      .alert-disc { display: grid; width: 130px; height: 130px; margin: 28px auto 0; place-items: center; border: 8px solid rgb(255 176 32 / 30%); border-radius: 50%; background: rgb(255 176 32 / 10%); color: var(--warn); font-size: 3.8rem; font-weight: 950; }
+      .yellow-button { display: grid; min-height: 54px; place-items: center; border-radius: 16px; background: var(--warn); color: var(--void); font-size: 0.82rem; font-weight: 850; box-shadow: 0 0 36px rgb(255 176 32 / 30%); }
+
+      /* Gameplay + server */
+      .flow-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+      .step { padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); }
+      .step-num { color: var(--imposter); font-size: 0.7rem; font-weight: 850; letter-spacing: 0.2em; }
+      .step h3 { margin: 18px 0 8px; font-size: 1rem; letter-spacing: 0.03em; }
+      .step p { margin: 0; color: var(--muted); font-size: 0.84rem; }
+
+      .server { border-block: 1px solid var(--line); background: var(--panel); }
+      .server-grid { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 60px; align-items: center; }
+      .terminal { overflow: hidden; border: 1px solid var(--line); border-radius: 22px; background: var(--ink); box-shadow: 0 30px 70px rgb(0 0 0 / 40%); }
+      .terminal-bar { display: flex; gap: 7px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+      .terminal-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+      .terminal-body { display: grid; grid-template-columns: 1fr 150px; gap: 18px; padding: 22px; font: 0.78rem/1.9 ui-monospace, monospace; }
+      .terminal-body .prompt { color: var(--muted); }
+      .terminal-body .command { color: var(--fog); }
+      .terminal-body .output { color: var(--crew); }
+      .qr { display: grid; aspect-ratio: 1; grid-template-columns: repeat(9, 1fr); gap: 2px; padding: 8px; border-radius: 8px; background: var(--fog); }
+      .qr i { background: var(--void); }
+      .qr i:nth-child(3n), .qr i:nth-child(5n), .qr i:nth-child(7n) { background: transparent; }
+      .server-list { display: grid; gap: 12px; margin-top: 26px; }
+      .server-point { display: grid; grid-template-columns: 28px 1fr; gap: 10px; color: var(--muted); font-size: 0.9rem; }
+      .server-point b { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 8px; background: rgb(62 224 255 / 10%); color: var(--crew); }
+
+      .dash-preview {
+        margin-top: 20px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        background: var(--void);
+      }
+      .dash-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+      .dash-head h3 { margin: 8px 0 0; font-size: 1.7rem; letter-spacing: 0.04em; }
+      .live-pill { display: inline-flex; min-height: 28px; align-items: center; padding: 0 12px; border-radius: 999px; background: rgb(62 224 122 / 15%); color: var(--ok); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+      .dash-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 22px; margin-top: 22px; }
+      .player-list, .sab-list { display: grid; gap: 8px; }
+      .player-row, .sab-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        font-size: 0.84rem;
+      }
+      .player-row em, .sab-row em { color: var(--muted); font-style: normal; font-size: 0.72rem; }
+      .dead { color: var(--imposter); }
+      .active-sab { border-color: rgb(255 53 87 / 40%); background: rgb(255 53 87 / 10%); }
+
+      .preset { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+      .preset-card { padding: 24px; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); }
+      .preset-card span { color: var(--crew); font-size: 0.67rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+      .preset-card h3 { margin: 10px 0; font-size: 1.2rem; }
+      .preset-card p { margin: 0; color: var(--muted); font-size: 0.86rem; }
+
+      footer { padding: 44px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.78rem; }
+      footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+
+      @media (max-width: 900px) {
+        .hero-grid, .server-grid { grid-template-columns: 1fr; }
+        .hero-grid { gap: 50px; }
+        h1 { max-width: 13ch; }
+        .screen-grid { grid-template-columns: 1fr; }
+        .game-card { max-width: 430px; margin-inline: auto; width: 100%; }
+        .dash-grid { grid-template-columns: 1fr; }
+        .flow-grid { grid-template-columns: 1fr 1fr; }
+      }
+      @media (max-width: 620px) {
+        section { padding: 70px 0; }
+        header { padding-top: 56px; }
+        .navlinks a:not(.nav-cta) { display: none; }
+        .trust-row, .preset { grid-template-columns: 1fr; }
+        .trust-item + .trust-item { border-top: 1px solid var(--line); border-left: 0; }
+        .flow-grid { grid-template-columns: 1fr; }
+        .terminal-body { grid-template-columns: 1fr; }
+        .qr { width: 150px; }
+        footer .wrap { align-items: start; flex-direction: column; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+        * { transition-duration: 0.01ms !important; }
+      }
+      a:focus-visible, button:focus-visible { outline: 2px solid var(--crew); outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <div class="app-bg">
+      <nav>
+        <div class="wrap">
+          <a class="brand" href="#">
+            <span class="brand-mark display">UU</span>
+            <span class="brand-name display">UnterUns</span>
+          </a>
+          <div class="navlinks">
+            <a href="#game">The game</a>
+            <a href="#play">How to play</a>
+            <a class="nav-cta" href="#host">Host locally</a>
+          </div>
+        </div>
+      </nav>
+
+      <header>
+        <div class="wrap">
+          <div class="hero-grid">
+            <div>
+              <span class="eyebrow">Live house game</span>
+              <h1>Trust no one. <span>Do the dishes.</span></h1>
+              <p class="hero-copy">A social deduction game made for your actual home. Crewmates finish real chores. Imposters fake it. Every phone joins over your own Wi-Fi.</p>
+              <div class="actions">
+                <a class="btn btn-primary" href="#host">Host a game</a>
+                <a class="btn btn-secondary" href="#game">See the screens</a>
+              </div>
+            </div>
+
+            <div class="phone" aria-label="UnterUns home screen preview">
+              <div class="phone-screen">
+                <div class="phone-top"><span class="eyebrow">Live house game</span><span class="mute">♪</span></div>
+                <div class="home-lockup">
+                  <div class="uu display">UU</div>
+                  <h2>UnterUns</h2>
+                  <p>A house. A traitor. Real chores. Trust no one — especially whoever just emptied the dishwasher.</p>
+                </div>
+                <span class="field-label">Your name</span>
+                <div class="fake-field">e.g. Jannes</div>
+                <div class="fake-button">Create game</div>
+                <div class="or">or join</div>
+                <div class="fake-field display" style="justify-content:center;letter-spacing:.35em;color:var(--muted)">K7PX</div>
+                <div class="fake-button join-button">Join game</div>
+                <div class="device-box">
+                  <span class="field-label">Device code</span>
+                  <p>Connect a spare phone as a sabotage device or house dashboard.</p>
+                  <div class="device-row">
+                    <div class="fake-field">DEVICE CODE</div>
+                    <div class="device-connect">Connect</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="trust-row">
+            <div class="trust-item"><strong>No cloud</strong><span>Everything stays on the host PC</span></div>
+            <div class="trust-item"><strong>No accounts</strong><span>Join with a name and four-character code</span></div>
+            <div class="trust-item"><strong>One command</strong><span>Start the app, server, LAN link, and QR</span></div>
+          </div>
+        </div>
+      </header>
+    </div>
+
+    <section class="screens" id="game">
+      <div class="wrap">
+        <div class="section-copy">
+          <span class="eyebrow">Inside the game</span>
+          <h2>Looks exactly like the night feels.</h2>
+          <p>Dark rooms, private information, sharp alerts, and just enough neon to make every decision feel suspicious.</p>
+        </div>
+
+        <div class="screen-grid">
+          <article class="game-card glow-red">
+            <div class="game-card-inner">
+              <span class="card-kicker">You are</span>
+              <div class="role-center">
+                <div>
+                  <h3>Imposter</h3>
+                  <p>Blend in. Sabotage quietly.<br />Do not get caught.</p>
+                  <div class="role-box"><span>Your crew</span><strong>Mara, Alex</strong></div>
+                </div>
+              </div>
+              <div class="red-button">Start faking the tasks</div>
+            </div>
+          </article>
+
+          <article class="game-card glow-cyan">
+            <div class="game-card-inner">
+              <div class="phone-top"><span class="eyebrow" style="color:var(--muted)">K7PX · in play</span><span style="color:var(--crew);font-size:.7rem;font-weight:800">CREWMATE</span></div>
+              <div class="progress-panel">
+                <div class="progress-head"><span>Task progress</span><strong data-progress>33%</strong></div>
+                <div class="track"><div class="fill" data-progress-fill></div></div>
+                <p class="progress-copy"><span data-done>1</span>/3 crewmate tasks done · 100% is a crewmate win</p>
+              </div>
+              <span class="task-title">Your tasks</span>
+              <button class="task done" type="button">
+                <span class="check">✓</span><span><span class="room">Kitchen</span><span class="task-name">Load the dishwasher</span></span>
+              </button>
+              <button class="task" type="button">
+                <span class="check">✓</span><span><span class="room">Balcony</span><span class="task-name">Water the plants</span></span>
+              </button>
+              <button class="task" type="button">
+                <span class="check">✓</span><span><span class="room">Hallway</span><span class="task-name">Sort the recycling</span></span>
+              </button>
+            </div>
+          </article>
+
+          <article class="game-card glow-yellow">
+            <div class="game-card-inner">
+              <span class="card-kicker">Meeting called</span>
+              <div class="meeting-center">
+                <div>
+                  <h3>Everyone gather</h3>
+                  <p>Called by <strong style="color:var(--fog)">Jannes</strong></p>
+                  <p>Jannes starts the timer when everyone is together.</p>
+                  <div class="alert-disc">!</div>
+                </div>
+              </div>
+              <div class="yellow-button">Everyone is here — start timer</div>
+            </div>
+          </article>
+        </div>
+
+        <article class="dash-preview" aria-label="House dashboard preview">
+          <div class="dash-head">
+            <div>
+              <span class="eyebrow" style="color:var(--crew)">House dashboard</span>
+              <h3>Put a spare phone or TV in the hallway.</h3>
+            </div>
+            <span class="live-pill">In play</span>
+          </div>
+          <div class="progress-panel" style="margin-top:18px">
+            <div class="progress-head"><span>Task progress</span><strong>33%</strong></div>
+            <div class="track"><div class="fill"></div></div>
+            <p class="progress-copy">1/3 crewmate tasks done · 100% is a crewmate win</p>
+          </div>
+          <div class="dash-grid">
+            <div>
+              <p class="task-title" style="margin-top:0">Players</p>
+              <div class="player-list">
+                <div class="player-row"><strong>Jannes</strong><em>alive</em></div>
+                <div class="player-row"><strong>Mara</strong><em class="dead">ghost · crewmate</em></div>
+                <div class="player-row"><strong>Alex</strong><em>alive</em></div>
+                <div class="player-row"><strong>Lea</strong><em>alive</em></div>
+              </div>
+            </div>
+            <div>
+              <p class="task-title" style="margin-top:0">Sabotages</p>
+              <div class="sab-list">
+                <div class="sab-row active-sab"><strong>Lights</strong><em>0:42 remaining</em></div>
+                <div class="sab-row"><strong>Reactor</strong><em>idle</em></div>
+                <div class="sab-row"><strong>Radio</strong><em>device ready</em></div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="play">
+      <div class="wrap">
+        <div class="section-copy">
+          <span class="eyebrow">How to play</span>
+          <h2>One house. One code. Several liars.</h2>
+          <p>The app handles private roles, personal tasks, kills, ghosts, timed sabotages, cooldowns, a house dashboard, global crew progress, alerts, and the meeting clock. You handle the accusations. Finish every crewmate task, or vote out the last imposter, and the crew wins.</p>
+        </div>
+        <div class="flow-grid">
+          <article class="step"><span class="step-num">01 / LOBBY</span><h3>Create & join</h3><p>Scan the host's QR, enter a name, and join with the room code. No accounts.</p></article>
+          <article class="step"><span class="step-num">02 / SETUP</span><h3>Configure</h3><p>Set imposters, meetings, kill and sabotage cooldowns, tasks, rooms, and a dashboard device.</p></article>
+          <article class="step"><span class="step-num">03 / BRIEF</span><h3>Walk through together</h3><p>Everyone reviews all task and sabotage locations before any roles are assigned.</p></article>
+          <article class="step"><span class="step-num">04 / PLAY</span><h3>Do or fake tasks</h3><p>Each player gets a random list. Only crewmate completions move global progress. At 100%, the crewmates win.</p></article>
+          <article class="step"><span class="step-num">05 / KILL</span><h3>Die & go silent</h3><p>Victims privately report their killer, wait out a silence timer, then become ghosts. Imposters share a global kill cooldown and each has their own.</p></article>
+          <article class="step"><span class="step-num">06 / SABOTAGE</span><h3>Race the clock</h3><p>Imposters trigger room events. Crewmates repair by trust, written code, or a dedicated device left in the room.</p></article>
+          <article class="step"><span class="step-num">07 / MEET</span><h3>Gather, discuss, vote</h3><p>Emergency meetings are limited and on cooldown. Body found can be called any time. The caller starts the clock, then votes one player out.</p></article>
+          <article class="step"><span class="step-num">08 / WATCH</span><h3>House dashboard</h3><p>A spare phone or TV shows shared task progress, who is alive, and which sabotages are idle or counting down.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="server" id="host">
+      <div class="wrap server-grid">
+        <div>
+          <span class="eyebrow">Local game server</span>
+          <h2 class="display" style="font-size:clamp(2rem,4vw,3.2rem);line-height:1.03;margin:16px 0">Your laptop is the whole backend.</h2>
+          <p style="color:var(--muted)">Install Node.js 22+, clone UnterUns, and start everything with one command. Keep the terminal open while you play.</p>
+          <div class="server-list">
+            <div class="server-point"><b>✓</b><span>Serves the web app and authoritative WebSocket game together</span></div>
+            <div class="server-point"><b>✓</b><span>Prints a LAN address and scannable QR for every phone</span></div>
+            <div class="server-point"><b>✓</b><span>Connects phones, a house dashboard, and sabotage devices over local Wi-Fi</span></div>
+            <div class="server-point"><b>✓</b><span>Keeps names, roles, tasks, kills, sabotages, and meetings in local memory</span></div>
+          </div>
+          <div class="actions"><a class="btn btn-primary" href="#setup">View commands</a></div>
+        </div>
+
+        <div class="terminal" id="setup">
+          <div class="terminal-bar"><i></i><i></i><i></i></div>
+          <div class="terminal-body">
+            <div>
+              <span class="prompt">$</span> <span class="command">npm install</span><br />
+              <span class="prompt">$</span> <span class="command">npm run host</span><br /><br />
+              <span class="command">UnterUns is running on port 4173</span><br />
+              <span class="output">LAN: http://192.168.1.23:4173</span><br /><br />
+              <span class="prompt">Scan to open UnterUns →</span>
+            </div>
+            <div class="qr" aria-label="Decorative QR code">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="section-copy">
+          <span class="eyebrow">Built for repeat nights</span>
+          <h2>Save the setup. Not the secrets.</h2>
+          <p>Reuse a good house layout without preserving active games or private information.</p>
+        </div>
+        <div class="preset">
+          <article class="preset-card"><span>Export JSON</span><h3>Keep your house setup</h3><p>Save tasks, sabotages, stable device codes, cooldowns, meeting timings, and imposter count.</p></article>
+          <article class="preset-card"><span>Import JSON</span><h3>Start the next round faster</h3><p>Load a preset on any host PC. Players, roles, active room codes, and progress are never included.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        <a class="brand" href="#"><span class="brand-mark display">UU</span><span class="brand-name display">UnterUns</span></a>
+        <span>Project page only · the game runs on your laptop, not here</span>
+      </div>
+    </footer>
+
+    <script>
+      const tasks = [...document.querySelectorAll('.task')]
+      const updateProgress = () => {
+        const done = tasks.filter((task) => task.classList.contains('done')).length
+        const percent = Math.round((done / tasks.length) * 100)
+        document.querySelector('[data-progress]').textContent = `${percent}%`
+        document.querySelector('[data-progress-fill]').style.width = `${percent}%`
+        document.querySelector('[data-done]').textContent = String(done)
+      }
+      tasks.forEach((task) => {
+        task.addEventListener('click', () => {
+          task.classList.toggle('done')
+          updateProgress()
+        })
+      })
+    </script>
+  </body>
+</html>

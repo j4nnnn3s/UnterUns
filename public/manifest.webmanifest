@@ -1,0 +1,17 @@
+{
+  "name": "UnterUns",
+  "short_name": "UnterUns",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05040a",
+  "theme_color": "#05040a",
+  "description": "Live-action social deduction for a shared house.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
