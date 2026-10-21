@@ -15,14 +15,18 @@ export function HomeScreen() {
   const [busy, setBusy] = useState<'create' | 'join' | null>(null)
   const [deviceCode, setDeviceCode] = useState('')
   const [deviceBusy, setDeviceBusy] = useState(false)
+  const [hostPassword, setHostPassword] = useState('')
+  const [askHostPassword, setAskHostPassword] = useState(false)
 
   async function onCreate() {
     clearError()
     setBusy('create')
     try {
-      await create(name)
-    } catch {
-      // shown via context
+      await create(name, askHostPassword ? hostPassword : undefined)
+    } catch (err) {
+      if (err instanceof Error && /host password/i.test(err.message)) {
+        setAskHostPassword(true)
+      }
     } finally {
       setBusy(null)
     }
@@ -86,8 +90,27 @@ export function HomeScreen() {
         className="mt-2 min-h-14 w-full rounded-2xl border border-line bg-panel px-4 text-lg text-fog outline-none placeholder:text-muted/50 focus:border-crew"
       />
 
+      {askHostPassword ? (
+        <>
+          <label className="mt-6 text-xs font-bold uppercase tracking-[0.2em] text-muted">
+            Host password
+          </label>
+          <input
+            value={hostPassword}
+            onChange={(event) => setHostPassword(event.target.value)}
+            type="password"
+            autoComplete="current-password"
+            maxLength={200}
+            className="mt-2 min-h-14 w-full rounded-2xl border border-line bg-panel px-4 text-lg text-fog outline-none placeholder:text-muted/50 focus:border-crew"
+          />
+        </>
+      ) : null}
+
       <div className="mt-6">
-        <Button onClick={() => void onCreate()} disabled={busy !== null || name.trim().length < 1}>
+        <Button
+          onClick={() => void onCreate()}
+          disabled={busy !== null || name.trim().length < 1 || (askHostPassword && hostPassword.length < 1)}
+        >
           {busy === 'create' ? 'Creating...' : 'Create game'}
         </Button>
       </div>

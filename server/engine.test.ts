@@ -591,6 +591,45 @@ test('host leave closes the room while player leave keeps it alive', () => {
   assert.equal(engine.hasRoom(code), false)
 })
 
+test('a session token restores the same seat and a visible player id does not', () => {
+  const engine = new GameEngine()
+  const hostId = 'host-id-123'
+  const crewId = 'player-id-456'
+  const created = engine.createGame(hostId, 'Host')
+  const code = created.game.code
+  engine.joinGame(crewId, code, 'Player')
+  engine.joinGame('player-id-789', code, 'Player Two')
+  engine.startPregame(code, hostId)
+  engine.startGame(code, hostId)
+
+  const hostToken = engine.openSession(code, hostId)
+  const crewToken = engine.openSession(code, crewId)
+  assert.notEqual(hostToken, crewToken)
+  assert.equal(hostToken.length >= 32, true)
+
+  const restored = engine.resumeByToken(hostToken, code.toLowerCase())
+  assert.equal(restored.game.hostId, hostId)
+  assert.equal(restored.players.find((player) => player.id === hostId)?.isHost, true)
+  assert.equal(restored.game.dashboardCode.length > 0, true)
+
+  const crewView = engine.resumeByToken(crewToken, code)
+  assert.equal(crewView.players.find((player) => player.id === crewId)?.isHost, false)
+  assert.equal(crewView.game.dashboardCode, '')
+  assert.equal(JSON.stringify(crewView).includes(hostToken), false)
+  assert.equal(JSON.stringify(crewView).includes(crewToken), false)
+  assert.equal(crewView.game.hostId, hostId)
+  assert.throws(() => engine.resumeByToken(hostId, code), /no longer active/)
+  assert.throws(() => engine.resumeByToken(crewId, code), /no longer active/)
+  assert.throws(() => engine.updateSettings(code, crewId, { discussionSeconds: 60 }), /Only the host/)
+
+  engine.leaveGame(code, crewId)
+  assert.throws(() => engine.resumeByToken(crewToken, code), /no longer active/)
+  assert.equal(engine.resumeByToken(hostToken, code).game.code, code)
+
+  engine.leaveGame(code, hostId)
+  assert.throws(() => engine.resumeByToken(hostToken, code), /no longer active/)
+})
+
 test('snapshots include the server clock so clients can render timers', () => {
   const originalNow = Date.now
   const now = 5_000_000

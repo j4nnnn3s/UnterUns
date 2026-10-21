@@ -20,7 +20,7 @@ export interface GameContextValue {
   deviceMode: boolean
   savedName: string
   clearError: () => void
-  create: (name: string) => Promise<void>
+  create: (name: string, hostPassword?: string) => Promise<void>
   join: (code: string, name: string) => Promise<void>
   leave: () => Promise<void>
   setImpostorCount: (count: number) => Promise<void>

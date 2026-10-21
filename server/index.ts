@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { networkInterfaces } from 'node:os'
@@ -5,70 +6,169 @@ import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
 import { WebSocket, WebSocketServer } from 'ws'
-import { GameEngine, type SettingsPatch } from './engine.js'
-
-interface ClientMessage {
-  type?: string
-  requestId?: string
-  playerId?: string
-  code?: string
-  name?: string
-  taskId?: string
-  killerId?: string
-  sabotageId?: string
-  deactivationCode?: string
-  deviceCode?: string
-  kind?: 'emergency' | 'body'
-  targetId?: string
-  patch?: SettingsPatch
-}
+import { GameEngine, type GameSnapshot, type SettingsPatch } from './engine.js'
+import {
+  INVALID_MESSAGE,
+  TOO_MANY_CREATES,
+  TOO_MANY_GUESSES,
+  TOO_MANY_JOINS,
+  SlidingWindowLimiter,
+  assertHostPassword,
+  cacheControl,
+  clientAddress,
+  heartbeatAction,
+  isUnknownRoom,
+  isUpgradeAllowed,
+  parseClientMessage,
+  readLimits,
+  securityHeaders,
+  type ParsedClientMessage,
+} from './limits.js'
+import {
+  readHost,
+  readPort,
+  readPublicUrl,
+  readTrustProxy,
+  shareBaseFromForwarded,
+  startupAnnouncement,
+} from './public-url.js'
 
 interface ConnectionState {
+  identified: boolean
   playerId: string | null
+  sessionToken: string | null
   code: string | null
   deviceKind: 'sabotage' | 'dashboard' | null
   deviceSabotageId: string | null
+  shareBase: string | null
+  ip: string
 }
 
-const host = process.env.HOST ?? '0.0.0.0'
-const port = Number(process.env.PORT ?? 4173)
+const ANONYMOUS_ACTIONS = new Set([
+  'create_game',
+  'join_game',
+  'connect_device',
+  'deactivate_from_device',
+])
+
+const host = readHost(process.env)
+const port = readPort(process.env)
+const publicUrl = readPublicUrl(process.env)
+const trustProxy = readTrustProxy(process.env)
+const limits = readLimits(process.env)
 const root = fileURLToPath(new URL('..', import.meta.url))
 const dist = resolve(process.env.DIST ?? resolve(root, 'dist'))
-const engine = new GameEngine()
+const engine = new GameEngine({
+  maxRooms: limits.maxRooms,
+  maxPlayers: limits.maxPlayers,
+  maxNameLength: limits.maxNameLength,
+})
+const createLimiter = new SlidingWindowLimiter(limits.roomCreateLimit, limits.roomCreateWindowMs)
+const joinLimiter = new SlidingWindowLimiter(limits.joinLimit, limits.joinWindowMs)
+const guessLimiter = new SlidingWindowLimiter(limits.guessLimit, limits.guessWindowMs)
 const connections = new Map<WebSocket, ConnectionState>()
+const alive = new WeakMap<WebSocket, boolean>()
 const meetingTimers = new Map<string, NodeJS.Timeout>()
 const deathTimers = new Map<string, NodeJS.Timeout>()
 const sabotageTimers = new Map<string, NodeJS.Timeout>()
 const MAX_TIMEOUT_MS = 2_147_000_000
 
-const server = createServer((request, response) => serveStatic(request, response))
-const sockets = new WebSocketServer({ server, path: '/ws' })
+const server = createServer((request, response) => {
+  try {
+    serveStatic(request, response)
+  } catch (error) {
+    console.error(error)
+    if (response.headersSent) {
+      response.destroy()
+      return
+    }
+    response.writeHead(500, { ...securityHeaders(), 'Content-Type': 'text/plain; charset=utf-8' })
+    response.end('Something went wrong\n')
+  }
+})
+const sockets = new WebSocketServer({
+  server,
+  path: '/ws',
+  maxPayload: limits.maxPayloadBytes,
+  verifyClient: (info: { origin: string; secure: boolean; req: IncomingMessage }) => {
+    const ip = addressFrom(info.req)
+    if (
+      !isUpgradeAllowed({
+        origin: info.origin,
+        hostHeader: info.req.headers.host,
+        publicUrl,
+      })
+    ) {
+      return false
+    }
+    return connectionsFor(ip) < limits.maxConnectionsPerIp
+  },
+})
 
-sockets.on('connection', (socket) => {
+sockets.on('connection', (socket, request) => {
+  alive.set(socket, true)
   connections.set(socket, {
+    identified: false,
     playerId: null,
+    sessionToken: null,
     code: null,
     deviceKind: null,
     deviceSabotageId: null,
+    ip: addressFrom(request),
+    shareBase: shareBaseFromForwarded(
+      { publicUrl, trustProxy },
+      {
+        proto: request.headers['x-forwarded-proto'],
+        host: request.headers['x-forwarded-host'],
+      },
+    ),
   })
 
-  socket.on('message', (raw) => {
-    void handleMessage(socket, raw.toString())
+  socket.on('pong', () => {
+    alive.set(socket, true)
+  })
+  socket.on('message', (raw, isBinary) => {
+    try {
+      if (isBinary) {
+        sendError(socket, undefined, INVALID_MESSAGE)
+        return
+      }
+      void handleMessage(socket, messageText(raw)).catch((error: unknown) => {
+        console.error(error)
+      })
+    } catch (error) {
+      console.error(error)
+    }
   })
   socket.on('close', () => {
     connections.delete(socket)
+    alive.delete(socket)
   })
-  socket.on('error', () => {
+  socket.on('error', (error) => {
+    console.error(error)
     connections.delete(socket)
+    alive.delete(socket)
   })
 })
 
+const heartbeat = setInterval(() => {
+  for (const socket of connections.keys()) {
+    if (heartbeatAction(alive.get(socket) !== false) === 'terminate') {
+      socket.terminate()
+      continue
+    }
+    alive.set(socket, false)
+    socket.ping()
+  }
+}, limits.heartbeatMs)
+heartbeat.unref()
+
 async function handleMessage(socket: WebSocket, raw: string): Promise<void> {
-  let message: ClientMessage
+  let message: ParsedClientMessage
   try {
-    message = JSON.parse(raw) as ClientMessage
-  } catch {
-    sendError(socket, undefined, 'Invalid message')
+    message = parseClientMessage(raw, limits)
+  } catch (error) {
+    sendError(socket, undefined, error instanceof Error ? error.message : INVALID_MESSAGE)
     return
   }
 
@@ -77,42 +177,89 @@ async function handleMessage(socket: WebSocket, raw: string): Promise<void> {
 
   try {
     if (message.type === 'identify') {
-      if (typeof message.playerId !== 'string' || message.playerId.length < 8) {
-        throw new Error('Invalid player identity')
+      state.identified = true
+      state.playerId = null
+      state.sessionToken = null
+      if (message.sessionToken) {
+        const session = engine.sessionFor(message.sessionToken)
+        if (!session) throw new Error('Your session is no longer active')
+        state.playerId = session.playerId
+        state.sessionToken = message.sessionToken
+        state.code = session.code
       }
-      state.playerId = message.playerId
-      sendOk(socket, message.requestId)
+      sendOk(socket, message.requestId, {
+        ...(state.shareBase ? { shareBase: state.shareBase } : {}),
+        ...(state.playerId ? { playerId: state.playerId } : {}),
+      })
       return
     }
 
-    const playerId = state.playerId
-    if (!playerId) throw new Error('Identify this device first')
+    if (!state.identified) throw new Error('Identify this device first')
+    const playerId = ANONYMOUS_ACTIONS.has(message.type) ? '' : requireSeat(state)
 
     switch (message.type) {
       case 'create_game': {
-        const snapshot = engine.createGame(playerId, requireString(message.name, 'name'))
+        if (!createLimiter.allow(state.ip)) throw new Error(TOO_MANY_CREATES)
+        assertHostPassword(limits.hostPassword, message.hostPassword)
+        const seatId = randomUUID()
+        const snapshot = engine.createGame(seatId, requireString(message.name, 'name'))
+        const sessionToken = engine.openSession(snapshot.game.code, seatId)
+        state.playerId = seatId
+        state.sessionToken = sessionToken
         state.code = snapshot.game.code
         state.deviceKind = null
         state.deviceSabotageId = null
-        sendOk(socket, message.requestId, { code: snapshot.game.code, playerId })
+        sendOk(socket, message.requestId, {
+          code: snapshot.game.code,
+          playerId: seatId,
+          sessionToken,
+        })
         broadcast(snapshot.game.code)
         break
       }
       case 'join_game': {
-        const snapshot = engine.joinGame(
-          playerId,
-          requireString(message.code, 'code'),
-          requireString(message.name, 'name'),
-        )
+        if (!joinLimiter.allow(state.ip)) throw new Error(TOO_MANY_JOINS)
+        const seatId = randomUUID()
+        let snapshot: GameSnapshot
+        try {
+          snapshot = engine.joinGame(
+            seatId,
+            requireString(message.code, 'code'),
+            requireString(message.name, 'name'),
+          )
+        } catch (error) {
+          if (isUnknownRoom(error) && !guessLimiter.allow(state.ip)) {
+            throw new Error(TOO_MANY_GUESSES)
+          }
+          throw error
+        }
+        const sessionToken = engine.openSession(snapshot.game.code, seatId)
+        state.playerId = seatId
+        state.sessionToken = sessionToken
         state.code = snapshot.game.code
         state.deviceKind = null
         state.deviceSabotageId = null
-        sendOk(socket, message.requestId, { code: snapshot.game.code, playerId })
+        sendOk(socket, message.requestId, {
+          code: snapshot.game.code,
+          playerId: seatId,
+          sessionToken,
+        })
         broadcast(snapshot.game.code)
         break
       }
       case 'resume': {
-        const snapshot = engine.resumeGame(requireString(message.code, 'code'), playerId)
+        const token = state.sessionToken
+        if (!token) throw new Error('Your session is no longer active')
+        let snapshot: GameSnapshot
+        try {
+          snapshot = engine.resumeByToken(token, requireString(message.code ?? state.code, 'code'))
+        } catch (error) {
+          if (isUnknownRoom(error) && !guessLimiter.allow(state.ip)) {
+            throw new Error(TOO_MANY_GUESSES)
+          }
+          throw error
+        }
+        state.playerId = playerId
         state.code = snapshot.game.code
         state.deviceKind = null
         state.deviceSabotageId = null
@@ -123,6 +270,8 @@ async function handleMessage(socket: WebSocket, raw: string): Promise<void> {
       case 'leave_game': {
         const code = requireString(message.code ?? state.code, 'code')
         const result = engine.leaveGame(code, playerId)
+        state.playerId = null
+        state.sessionToken = null
         state.code = null
         state.deviceKind = null
         state.deviceSabotageId = null
@@ -140,7 +289,7 @@ async function handleMessage(socket: WebSocket, raw: string): Promise<void> {
       }
       case 'update_settings': {
         const code = requireString(message.code ?? state.code, 'code')
-        engine.updateSettings(code, playerId, message.patch ?? {})
+        engine.updateSettings(code, playerId, (message.patch ?? {}) as SettingsPatch)
         sendOk(socket, message.requestId)
         broadcast(code)
         break
@@ -304,19 +453,20 @@ async function handleMessage(socket: WebSocket, raw: string): Promise<void> {
 function broadcast(code: string): void {
   if (!engine.hasRoom(code)) return
   for (const [socket, state] of connections) {
-    if (state.code !== code || !state.playerId || socket.readyState !== WebSocket.OPEN) continue
+    if (state.code !== code || socket.readyState !== WebSocket.OPEN) continue
+    if (!state.deviceKind && !state.playerId) continue
     try {
       if (state.deviceKind === 'dashboard') {
         send(socket, {
           type: 'device_snapshot',
           device: engine.snapshotDashboard(code),
         })
-      } else if (state.deviceSabotageId) {
+      } else if (state.deviceKind === 'sabotage' && state.deviceSabotageId) {
         send(socket, {
           type: 'device_snapshot',
           device: engine.snapshotDevice(code, state.deviceSabotageId),
         })
-      } else {
+      } else if (state.playerId) {
         send(socket, { type: 'snapshot', ...engine.snapshot(code, state.playerId) })
       }
     } catch {
@@ -435,7 +585,12 @@ function sendError(socket: WebSocket, requestId: string | undefined, message: st
 }
 
 function send(socket: WebSocket, payload: unknown): void {
-  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))
+  if (socket.readyState !== WebSocket.OPEN) return
+  try {
+    socket.send(JSON.stringify(payload))
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 function requireString(value: unknown, label: string): string {
@@ -445,16 +600,27 @@ function requireString(value: unknown, label: string): string {
 
 function serveStatic(request: IncomingMessage, response: ServerResponse): void {
   if (!existsSync(dist)) {
-    response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' })
+    response.writeHead(503, {
+      ...securityHeaders(),
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-cache',
+    })
     response.end('UnterUns is not built yet. Run "npm run build" first.\n')
     return
   }
 
-  const requestPath = decodeURIComponent((request.url ?? '/').split('?')[0]!)
+  let requestPath: string
+  try {
+    requestPath = decodeURIComponent((request.url ?? '/').split('?')[0]!)
+  } catch {
+    response.writeHead(400, { ...securityHeaders(), 'Cache-Control': 'no-cache' })
+    response.end()
+    return
+  }
   const relativePath = requestPath === '/' ? 'index.html' : requestPath.replace(/^\/+/, '')
   let filePath = resolve(dist, relativePath)
   if (!filePath.startsWith(`${dist}${sep}`) && filePath !== dist) {
-    response.writeHead(403)
+    response.writeHead(403, { ...securityHeaders(), 'Cache-Control': 'no-cache' })
     response.end()
     return
   }
@@ -463,12 +629,16 @@ function serveStatic(request: IncomingMessage, response: ServerResponse): void {
   }
 
   response.writeHead(200, {
+    ...securityHeaders(),
     'Content-Type': contentType(filePath),
-    'Cache-Control': filePath.endsWith('index.html')
-      ? 'no-cache'
-      : 'public, max-age=31536000, immutable',
+    'Cache-Control': cacheControl(filePath),
   })
-  createReadStream(filePath).pipe(response)
+  const stream = createReadStream(filePath)
+  stream.on('error', (error) => {
+    console.error(error)
+    response.destroy()
+  })
+  stream.pipe(response)
 }
 
 function contentType(filePath: string): string {
@@ -485,16 +655,16 @@ function contentType(filePath: string): string {
 
 server.listen(port, host, async () => {
   console.log(`UnterUns is running on port ${port}`)
-  const urls = lanAddresses().map((address) => `http://${address}:${port}`)
-  if (urls.length === 0) {
+  const announcement = startupAnnouncement(publicUrl, lanAddresses(), port)
+  if (announcement.kind === 'no-lan') {
     console.log('No LAN address found. Check the host network connection.')
     return
   }
-  for (const url of urls) console.log(`LAN: ${url}`)
+  for (const line of announcement.lines) console.log(line)
   console.log('\nScan to open UnterUns:')
   try {
     console.log(
-      await QRCode.toString(urls[0]!, {
+      await QRCode.toString(announcement.qrUrl, {
         type: 'terminal',
         small: true,
         errorCorrectionLevel: 'M',
@@ -504,6 +674,65 @@ server.listen(port, host, async () => {
     console.log('Could not render the QR code. Open the LAN address above.')
   }
 })
+
+server.on('error', (error) => {
+  console.error(error)
+})
+server.on('clientError', (_error, socket) => {
+  socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+})
+
+process.on('uncaughtException', (error) => {
+  console.error(error)
+})
+process.on('unhandledRejection', (error) => {
+  console.error(error)
+})
+
+let shuttingDown = false
+function shutdown(signal: string): void {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log(`Shutting down (${signal})`)
+  clearInterval(heartbeat)
+  for (const timer of meetingTimers.values()) clearTimeout(timer)
+  for (const timer of deathTimers.values()) clearTimeout(timer)
+  for (const timer of sabotageTimers.values()) clearTimeout(timer)
+  for (const socket of connections.keys()) socket.close(1001, 'Server shutting down')
+  sockets.close()
+  server.close(() => process.exit(0))
+  setTimeout(() => process.exit(0), 1_500).unref()
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
+
+function requireSeat(state: ConnectionState): string {
+  if (!state.sessionToken) throw new Error('Your session is no longer active')
+  const session = engine.sessionFor(state.sessionToken)
+  if (!session) throw new Error('Your session is no longer active')
+  state.playerId = session.playerId
+  return session.playerId
+}
+
+function addressFrom(request: IncomingMessage): string {
+  return clientAddress(request.socket.remoteAddress, request.headers['x-forwarded-for'], trustProxy)
+}
+
+function connectionsFor(ip: string): number {
+  let count = 0
+  for (const state of connections.values()) {
+    if (state.ip === ip) count += 1
+  }
+  return count
+}
+
+function messageText(raw: WebSocket.RawData): string {
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw)) return Buffer.concat(raw).toString('utf8')
+  if (Buffer.isBuffer(raw)) return raw.toString('utf8')
+  return Buffer.from(new Uint8Array(raw)).toString('utf8')
+}
 
 function lanAddresses(): string[] {
   return Object.values(networkInterfaces())

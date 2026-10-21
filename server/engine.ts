@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
+import { ROOM_FULL, TOO_MANY_ROOMS } from './limits.js'
 
 export type GameStatus = 'lobby' | 'pregame' | 'playing' | 'meeting' | 'ended'
 export type Role = 'crewmate' | 'imposter'
@@ -158,11 +159,28 @@ const CREW_COLORS = [
   '#50ef39',
 ]
 
+export interface EngineOptions {
+  maxRooms?: number
+  maxPlayers?: number
+  maxNameLength?: number
+}
+
 export class GameEngine {
   private readonly rooms = new Map<string, Room>()
+  private readonly sessions = new Map<string, { code: string; playerId: string }>()
+  private readonly maxRooms: number
+  private readonly maxPlayers: number
+  private readonly maxNameLength: number
+
+  constructor(options: EngineOptions = {}) {
+    this.maxRooms = options.maxRooms ?? 100
+    this.maxPlayers = options.maxPlayers ?? 24
+    this.maxNameLength = options.maxNameLength ?? 16
+  }
 
   createGame(playerId: string, rawName: string): GameSnapshot {
-    const name = sanitizeName(rawName)
+    if (this.rooms.size >= this.maxRooms) throw new Error(TOO_MANY_ROOMS)
+    const name = sanitizeName(rawName, this.maxNameLength)
     let code = ''
     for (let attempt = 0; attempt < 8; attempt++) {
       code = generateCode()
@@ -227,12 +245,13 @@ export class GameEngine {
     const code = normalizeCode(rawCode)
     if (!isValidCode(code)) throw new Error('Enter a 4-character join code')
     const room = this.getRoom(code)
-    const name = sanitizeName(rawName)
+    const name = sanitizeName(rawName, this.maxNameLength)
     const existing = room.players.get(playerId)
 
     if (room.game.status !== 'lobby' && room.game.status !== 'pregame' && !existing) {
       throw new Error('That game already started')
     }
+    if (!existing && room.players.size >= this.maxPlayers) throw new Error(ROOM_FULL)
     if (
       [...room.players.values()].some(
         (player) => player.id !== playerId && player.name.toLowerCase() === name.toLowerCase(),
@@ -267,13 +286,41 @@ export class GameEngine {
     return this.snapshot(room.game.code, playerId)
   }
 
+  openSession(code: string, playerId: string): string {
+    const room = this.playerRoom(code, playerId)
+    const token = randomBytes(32).toString('base64url')
+    this.sessions.set(token, { code: room.game.code, playerId })
+    return token
+  }
+
+  sessionFor(token: string): { code: string; playerId: string } | null {
+    const session = this.sessions.get(token)
+    if (!session) return null
+    const room = this.rooms.get(session.code)
+    if (!room?.players.has(session.playerId)) {
+      this.sessions.delete(token)
+      return null
+    }
+    return { code: session.code, playerId: session.playerId }
+  }
+
+  resumeByToken(token: string, rawCode: string): GameSnapshot {
+    const session = this.sessionFor(token)
+    const code = normalizeCode(rawCode)
+    if (!session || session.code !== code) throw new Error('Your session is no longer active')
+    return this.resumeGame(session.code, session.playerId)
+  }
+
   leaveGame(code: string, playerId: string): { closed: boolean } {
     const room = this.getRoom(code)
     const player = this.getPlayer(room, playerId)
+    const roomCode = room.game.code
     if (player.isHost) {
-      this.rooms.delete(room.game.code)
+      this.revokeRoom(roomCode)
+      this.rooms.delete(roomCode)
       return { closed: true }
     }
+    this.revokePlayer(roomCode, playerId)
     room.players.delete(playerId)
     room.assignments.delete(playerId)
     return { closed: false }
@@ -1030,10 +1077,22 @@ export class GameEngine {
   private assertHost(room: Room, playerId: string): void {
     if (room.game.hostId !== playerId) throw new Error('Only the host can do that')
   }
+
+  private revokePlayer(code: string, playerId: string): void {
+    for (const [token, session] of this.sessions) {
+      if (session.code === code && session.playerId === playerId) this.sessions.delete(token)
+    }
+  }
+
+  private revokeRoom(code: string): void {
+    for (const [token, session] of this.sessions) {
+      if (session.code === code) this.sessions.delete(token)
+    }
+  }
 }
 
-export function sanitizeName(raw: string): string {
-  const name = raw.trim().replace(/\s+/g, ' ').slice(0, 16)
+export function sanitizeName(raw: string, maxLength = 16): string {
+  const name = raw.trim().replace(/\s+/g, ' ').slice(0, maxLength)
   if (!name) throw new Error('Enter a name')
   return name
 }

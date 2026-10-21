@@ -1,9 +1,11 @@
 import { useState, type ChangeEvent } from 'react'
+import { joinPageUrl } from '../../server/public-url.ts'
 import { Button } from '../components/Button'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { MuteToggle } from '../components/MuteToggle'
 import { PlayerChip } from '../components/PlayerChip'
 import { Screen } from '../components/Screen'
+import { getShareBase } from '../game/api'
 import { useGame } from '../game/context'
 import { createTask } from '../game/defaults'
 import { createId } from '../id'
@@ -47,7 +49,12 @@ export function LobbyScreen() {
     game.impostorCount < players.length / 2
 
   async function copyCode() {
-    const url = `${window.location.origin}${window.location.pathname}?code=${joinCode}`
+    const url = joinPageUrl({
+      shareBase: getShareBase(),
+      origin: window.location.origin,
+      pathname: window.location.pathname,
+      code: joinCode,
+    })
     try {
       await copyText(url)
       setCopyStatus('copied')

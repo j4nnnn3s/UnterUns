@@ -6,6 +6,7 @@ import type {
   Sabotage,
   Task,
 } from '../types'
+import { browserWebSocketUrl } from '../../server/public-url.ts'
 import { createId } from '../id'
 import { isValidCode, normalizeCode } from './codes'
 import { syncServerNow } from './time'
@@ -55,17 +56,30 @@ let socket: WebSocket | null = null
 let connecting: Promise<void> | null = null
 let reconnectTimer: number | null = null
 let reconnectDelay = 500
+let shareBase: string | null = null
 let subscription: Subscription | null = null
 let deviceSubscription: DeviceSubscription | null = null
 const pending = new Map<string, PendingRequest>()
 
+export interface ClientSession {
+  code: string
+  playerId: string
+  token: string
+}
+
 export function getPlayerId(): string {
+  const session = loadSession()
+  if (session) return session.playerId
   let id = sessionStorage.getItem(PLAYER_ID_KEY)
   if (!id) {
     id = createId()
     sessionStorage.setItem(PLAYER_ID_KEY, id)
   }
   return id
+}
+
+export function getShareBase(): string | null {
+  return shareBase
 }
 
 export function getSavedName(): string {
@@ -76,20 +90,20 @@ export function saveName(name: string): void {
   localStorage.setItem(NAME_KEY, name)
 }
 
-export function loadSession(): { code: string; playerId: string } | null {
+export function loadSession(): ClientSession | null {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as { code?: string; playerId?: string }
-    if (!parsed.code || !parsed.playerId) return null
-    return { code: parsed.code, playerId: parsed.playerId }
+    const parsed = JSON.parse(raw) as { code?: string; playerId?: string; token?: string }
+    if (!parsed.code || !parsed.playerId || !parsed.token) return null
+    return { code: parsed.code, playerId: parsed.playerId, token: parsed.token }
   } catch {
     return null
   }
 }
 
-export function saveSession(code: string, playerId: string): void {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }))
+export function saveSession(code: string, playerId: string, token: string): void {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId, token }))
 }
 
 export function clearSession(): void {
@@ -149,24 +163,26 @@ export function subscribeToDevice(
   }
 }
 
-export async function createGame(hostName: string): Promise<{
-  code: string
-  playerId: string
-}> {
+export async function createGame(
+  hostName: string,
+  hostPassword?: string,
+): Promise<ClientSession> {
   const name = sanitizeName(hostName)
   saveName(name)
-  const result = (await request('create_game', { name })) as {
+  const result = (await request('create_game', {
+    name,
+    ...(hostPassword ? { hostPassword } : {}),
+  })) as {
     code: string
     playerId: string
+    sessionToken: string
   }
-  saveSession(result.code, result.playerId)
-  return result
+  const session = { code: result.code, playerId: result.playerId, token: result.sessionToken }
+  saveSession(session.code, session.playerId, session.token)
+  return session
 }
 
-export async function joinGame(rawCode: string, rawName: string): Promise<{
-  code: string
-  playerId: string
-}> {
+export async function joinGame(rawCode: string, rawName: string): Promise<ClientSession> {
   const code = normalizeCode(rawCode)
   if (!isValidCode(code)) throw new Error('Enter a 4-character join code')
   const name = sanitizeName(rawName)
@@ -174,9 +190,11 @@ export async function joinGame(rawCode: string, rawName: string): Promise<{
   const result = (await request('join_game', { code, name })) as {
     code: string
     playerId: string
+    sessionToken: string
   }
-  saveSession(result.code, result.playerId)
-  return result
+  const session = { code: result.code, playerId: result.playerId, token: result.sessionToken }
+  saveSession(session.code, session.playerId, session.token)
+  return session
 }
 
 export async function leaveGame(code: string): Promise<void> {
@@ -300,8 +318,9 @@ async function ensureConnected(): Promise<void> {
     }, 5000)
 
     next.addEventListener('open', () => {
-      void sendRequest('identify', { playerId: getPlayerId() })
-        .then(() => {
+      void sendRequest('identify', identifyPayload())
+        .then((data) => {
+          rememberShareBase(data)
           window.clearTimeout(timeout)
           reconnectDelay = 500
           resolve()
@@ -412,10 +431,25 @@ function handleDisconnect(): void {
   reconnectDelay = Math.min(reconnectDelay * 2, 5000)
 }
 
+function identifyPayload(): { sessionToken?: string } {
+  const session = loadSession()
+  return session ? { sessionToken: session.token } : {}
+}
+
 function webSocketUrl(): string {
-  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/ws`
+  return browserWebSocketUrl({
+    protocol: window.location.protocol,
+    host: window.location.host,
+  })
+}
+
+function rememberShareBase(data: unknown): void {
+  if (!data || typeof data !== 'object' || !('shareBase' in data)) {
+    shareBase = null
+    return
+  }
+  const value = (data as { shareBase?: unknown }).shareBase
+  shareBase = typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function asError(error: unknown): Error {

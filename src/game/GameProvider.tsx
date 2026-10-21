@@ -174,13 +174,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
       deviceMode: deviceSession !== null,
       savedName,
       clearError: () => setError(null),
-      create: (name) =>
+      create: (name, hostPassword) =>
         run(async () => {
           clearDeviceSession()
           setDeviceSession(null)
           setDevice(null)
           setDashboard(null)
-          const next = await createGame(name)
+          const next = await createGame(name, hostPassword)
           setLoading(true)
           setSession(next)
         }),

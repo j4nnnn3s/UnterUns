@@ -195,13 +195,18 @@ cleared, and the host can adjust settings before starting another round.
 
 ## Reconnection and storage
 
-Refreshing or briefly disconnecting preserves a player's session in the same
-browser tab. Separate tabs can act as separate players for local testing.
-Explicitly leaving removes that player. If the host closes the room from the
-UI, the room is deleted.
+Refreshing or briefly disconnecting preserves a player's seat in the same
+browser tab. The server keeps that seat in memory and gives the tab a secret
+session token. After the socket drops — a locked screen, or Wi-Fi handing off
+to mobile data — the phone reconnects with that token and returns to the same
+seat. A player id visible to someone else is not enough to take the seat.
+Separate tabs can act as separate players for local testing. Explicitly
+leaving removes that player and invalidates the token. If the host closes the
+room from the UI, the room is deleted.
 
-Game state is never written to disk. Restarting the server clears all active
-rooms. Export a lobby preset if its setup should be reused later.
+Game state and session tokens are never written to disk. Restarting the server
+clears all active rooms. Export a lobby preset if its setup should be reused
+later.
 
 ## Development
 
@@ -227,6 +232,77 @@ npm test
 npm run build
 npm run check
 ```
+
+## Deployment
+
+UnterUns can sit behind a TLS-terminating reverse proxy. The Node process
+speaks plain HTTP only. With no deployment variables set, `npm run host` still
+prints LAN addresses and a QR code for those addresses, and invite links still
+use the origin of the page that is open.
+
+The server reads the process environment. It does not load a `.env` file.
+`.env.example` lists the variables:
+
+- `HOST` — bind address, default `0.0.0.0`. Use `127.0.0.1` when a proxy on
+  the same machine is the only public entry. Leave the default for LAN play,
+  or phones cannot connect.
+- `PORT` — listen port, default `4173`. The proxy forwards to this port. When
+  `PUBLIC_URL` is unset, printed LAN links include this port.
+- `PUBLIC_URL` — optional public origin, such as `https://example.com`, with
+  no path and no trailing slash. When set, the terminal link, the QR code, and
+  in-app invite links use it. When unset, the terminal falls back to LAN-IP
+  detection and invite links use the page origin.
+- `TRUST_PROXY` — default `false`. Set `true` only behind a proxy that sends
+  `X-Forwarded-Proto`, `X-Forwarded-Host`, and `X-Forwarded-For`. Invite links
+  can then use the host headers when `PUBLIC_URL` is unset, and rate limits use
+  the forwarded client address. Forged forwarded headers are ignored while this
+  stays false. Leave it false on a LAN host.
+- `HOST_PASSWORD` — optional. When set, creating a room requires this password,
+  so a stranger who finds the server cannot open games. When unset, anyone who
+  can open the page can create a room, as on a LAN. The password field appears
+  only after the server asks for it.
+
+Limits have defaults that a normal house game will not notice, and each one
+can be overridden. See `.env.example` for `MAX_ROOMS` (100), `MAX_PLAYERS`
+(24), `MAX_CONNECTIONS_PER_IP` (48), `WS_MAX_PAYLOAD_BYTES` (65536),
+`WS_HEARTBEAT_MS` (30000), and the create, join, and failed-guess windows.
+The server pings each socket and drops it if the pong does not come back, so
+a proxy idle timeout does not leave a dead player attached. With `PUBLIC_URL`
+set, the WebSocket upgrade Origin must be that origin. With it unset, the
+upgrade is allowed for the page's own host and for LAN addresses such as
+`192.168.x.x`, `10.x`, and `localhost`. HTTP responses send `nosniff`,
+`Referrer-Policy: no-referrer`, and a Content-Security-Policy that allows the
+same-origin WebSocket. Hashed files under `assets/` are cached immutably;
+`index.html` and the other unhashed files are not.
+
+The browser builds its WebSocket URL from the page it loaded: `wss:` when the
+page is `https:`, `ws:` otherwise, on the same host and port, path `/ws`.
+Nothing in the client bundle hardcodes a hostname. Changing the public domain
+later means changing `PUBLIC_URL` and the proxy site address, then restarting
+the process. Do not rebuild just to change the domain.
+
+Build once, then start with the variables in the environment:
+
+```bash
+npm run build
+PUBLIC_URL=https://example.com TRUST_PROXY=true HOST=127.0.0.1 npm start
+```
+
+`npm run host` also works; it rebuilds before starting. The proxy must forward
+WebSocket upgrades for `/ws` and pass `X-Forwarded-Proto`, `X-Forwarded-Host`,
+and `X-Forwarded-For`. Do not terminate TLS inside Node. A `SIGTERM` closes
+sockets and exits.
+
+Caddy does both by default. A minimal site block:
+
+```caddyfile
+example.com {
+	reverse_proxy 127.0.0.1:4173
+}
+```
+
+Other proxies need the same upgrade forwarding (`Upgrade` and `Connection`)
+and the same forwarded headers. Point the proxy at the Node listen address.
 
 ## GitHub Pages
 
