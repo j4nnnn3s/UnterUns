@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Button } from '../components/Button'
+import { cn } from '../cn'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { DeathOverlay } from '../components/DeathOverlay'
 import { InfoDialog } from '../components/InfoDialog'
@@ -358,7 +359,7 @@ export function PlayScreen() {
               onClick={() => setInfo('emergency')}
             />
             <Button
-              variant="emergency"
+              variant="report"
               size="xl"
               disabled={busy || !canCallEmergency}
               onClick={() => void onMeeting('emergency')}
@@ -374,7 +375,7 @@ export function PlayScreen() {
                       : `Emergency meeting · ${emergenciesLeft} left`}
             </Button>
             <Button
-              variant="report"
+              variant="emergency"
               size="xl"
               disabled={busy || reportingBody || game.status !== 'playing'}
               onClick={() => openBodyReport()}
@@ -437,8 +438,8 @@ export function PlayScreen() {
           aria-modal="true"
           aria-labelledby="body-title"
         >
-          <div className="w-full max-w-sm rounded-3xl border border-warn/40 bg-panel px-5 py-5">
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-warn">
+          <div className="w-full max-w-sm rounded-3xl border border-imposter/40 bg-panel px-5 py-5">
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-imposter">
               Report a body
             </p>
             <h2
@@ -463,7 +464,7 @@ export function PlayScreen() {
                     value={candidate.id}
                     checked={selectedBodyId === candidate.id}
                     onChange={() => setSelectedBodyId(candidate.id)}
-                    className="accent-warn"
+                    className="accent-imposter"
                   />
                   <span className="font-semibold">{candidate.name}</span>
                 </label>
@@ -472,7 +473,7 @@ export function PlayScreen() {
             {error ? <p className="mt-3 text-sm text-imposter">{error}</p> : null}
             <div className="mt-5 space-y-2">
               <Button
-                variant="report"
+                variant="emergency"
                 disabled={!selectedBodyId || reportingBody}
                 onClick={() => void submitBodyReport()}
               >
@@ -741,8 +742,18 @@ export function PlayScreen() {
           aria-modal="true"
           aria-labelledby="hat-title"
         >
-          <div className="relative w-full max-w-sm rounded-3xl border border-warn/50 bg-panel px-5 py-6">
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-warn">
+          <div
+            className={cn(
+              'relative w-full max-w-sm rounded-3xl border bg-panel px-5 py-6',
+              game.meeting.kind === 'emergency' ? 'border-warn/50' : 'border-imposter/50',
+            )}
+          >
+            <p
+              className={cn(
+                'text-xs font-bold uppercase tracking-[0.3em]',
+                game.meeting.kind === 'emergency' ? 'text-warn' : 'text-imposter',
+              )}
+            >
               Meeting called
             </p>
             <h2
@@ -759,7 +770,7 @@ export function PlayScreen() {
             </p>
             <div className="mt-5">
               <Button
-                variant="report"
+                variant={game.meeting.kind === 'emergency' ? 'report' : 'emergency'}
                 onClick={() => setHatMeetingId(game.meeting!.id)}
               >
                 I'll bring my hat

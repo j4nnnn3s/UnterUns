@@ -1,4 +1,5 @@
 import { Button } from '../components/Button'
+import { MuteToggle } from '../components/MuteToggle'
 import { Screen } from '../components/Screen'
 import { cn } from '../cn'
 import { useGame } from '../game/context'
@@ -25,17 +26,27 @@ export function DashboardScreen() {
           </p>
           <h1 className="font-display text-3xl font-extrabold uppercase">UnterUns</h1>
         </div>
-        <StatusBadge
-          status={dashboard.status}
-          winner={dashboard.winner}
-          meetingKind={meeting?.kind ?? null}
-        />
+        <div className="flex items-center gap-2">
+          <StatusBadge
+            status={dashboard.status}
+            winner={dashboard.winner}
+            meetingKind={meeting?.kind ?? null}
+          />
+          <MuteToggle />
+        </div>
       </header>
 
       {ended ? (
         <WinBanner winner={dashboard.winner} reason={dashboard.winReason} />
       ) : meeting ? (
-        <p className="mt-4 rounded-2xl border border-warn/40 bg-warn/10 px-4 py-3 text-center text-sm font-semibold text-warn">
+        <p
+          className={cn(
+            'mt-4 rounded-2xl border px-4 py-3 text-center text-sm font-semibold',
+            meeting.kind === 'emergency'
+              ? 'border-warn/40 bg-warn/10 text-warn'
+              : 'border-imposter/40 bg-imposter/10 text-imposter',
+          )}
+        >
           {meeting.kind === 'emergency'
             ? 'Emergency meeting'
             : meeting.reportedPlayerName
@@ -208,8 +219,13 @@ function StatusBadge({
   }
   if (status === 'meeting') {
     return (
-      <span className="rounded-full bg-warn/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-warn">
-        {meetingKind === 'emergency' ? 'Emergency' : 'Meeting'}
+      <span
+        className={cn(
+          'rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider',
+          meetingKind === 'emergency' ? 'bg-warn/15 text-warn' : 'bg-imposter/15 text-imposter',
+        )}
+      >
+        {meetingKind === 'emergency' ? 'Emergency' : 'Body found'}
       </span>
     )
   }

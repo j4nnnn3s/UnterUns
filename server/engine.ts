@@ -724,6 +724,8 @@ export class GameEngine {
     room: string
     active: boolean
     endsAtMs: number | null
+    status: GameStatus
+    meeting: Meeting | null
     gameEnded: boolean
     winner: 'imposters' | 'crewmates' | null
     winReason: WinReason | null
@@ -743,6 +745,8 @@ export class GameEngine {
       room: sabotage.room,
       active: active !== null,
       endsAtMs: active?.endsAtMs ?? null,
+      status: room.game.status,
+      meeting: room.game.meeting,
       gameEnded: room.game.status === 'ended',
       winner: room.game.winner,
       winReason: room.game.winReason,

@@ -53,10 +53,35 @@ body {
   animation: pulse-red 1.1s ease-in-out infinite;
 }
 
+.emergency-pulse {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 176, 32, 0.4), transparent 55%);
+  animation: pulse-amber 1.2s ease-in-out infinite;
+}
+
 .body-pulse {
   background:
-    radial-gradient(circle at 50% 30%, rgba(255, 176, 32, 0.35), transparent 55%);
-  animation: pulse-amber 1.4s ease-in-out infinite;
+    radial-gradient(circle at 50% 30%, rgba(255, 53, 87, 0.45), transparent 55%);
+  animation: pulse-red 1.1s ease-in-out infinite;
+}
+
+.sabotage-strobe {
+  background: rgba(255, 53, 87, 0.28);
+  animation: sabotage-strobe 500ms steps(2, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert-pulse,
+  .emergency-pulse,
+  .body-pulse {
+    animation: none;
+    opacity: 0.45;
+  }
+
+  .sabotage-strobe {
+    animation: none;
+    opacity: 0.32;
+  }
 }
 
 .role-imposter {
@@ -99,6 +124,17 @@ body {
   }
   100% {
     transform: translateX(200%);
+  }
+}
+
+@keyframes sabotage-strobe {
+  0%,
+  49% {
+    opacity: 0.12;
+  }
+  50%,
+  100% {
+    opacity: 0.55;
   }
 }
 

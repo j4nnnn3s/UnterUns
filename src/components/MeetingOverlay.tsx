@@ -55,7 +55,7 @@ export function MeetingOverlay({
       <div
         className={cn(
           'pointer-events-none absolute inset-0 opacity-40',
-          meeting.kind === 'emergency' ? 'alert-pulse' : 'body-pulse',
+          meeting.kind === 'emergency' ? 'emergency-pulse' : 'body-pulse',
         )}
       />
       <div className="relative mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col items-center justify-center overflow-y-auto py-4 text-center">
@@ -111,7 +111,7 @@ export function MeetingOverlay({
         <p
           className={cn(
             'text-xs font-bold uppercase tracking-[0.35em]',
-            meeting.kind === 'emergency' ? 'text-imposter' : 'text-warn',
+            meeting.kind === 'emergency' ? 'text-warn' : 'text-imposter',
           )}
         >
           {meeting.kind === 'emergency' ? 'Emergency meeting' : 'Body found'}
@@ -119,13 +119,13 @@ export function MeetingOverlay({
         <h2
           className={cn(
             'mt-3 font-display text-4xl font-extrabold uppercase leading-none tracking-wide',
-            meeting.kind === 'emergency' ? 'text-imposter' : 'text-warn',
+            meeting.kind === 'emergency' ? 'text-warn' : 'text-imposter',
           )}
         >
           {gathering ? 'Everyone gather' : 'Discussion'}
         </h2>
         {meeting.kind === 'body' && meeting.reportedPlayerName ? (
-          <p className="mt-4 font-display text-2xl font-extrabold uppercase text-warn">
+          <p className="mt-4 font-display text-2xl font-extrabold uppercase text-imposter">
             {meeting.reportedPlayerName}
           </p>
         ) : null}
@@ -141,7 +141,14 @@ export function MeetingOverlay({
         </p>
 
         {gathering ? (
-          <div className="mt-10 grid h-36 w-36 place-items-center rounded-full border-8 border-warn/30 bg-warn/10 font-display text-6xl font-black text-warn">
+          <div
+            className={cn(
+              'mt-10 grid h-36 w-36 place-items-center rounded-full border-8 font-display text-6xl font-black',
+              meeting.kind === 'emergency'
+                ? 'border-warn/30 bg-warn/10 text-warn'
+                : 'border-imposter/30 bg-imposter/10 text-imposter',
+            )}
+          >
             !
           </div>
         ) : (
@@ -168,7 +175,7 @@ export function MeetingOverlay({
                 cy="60"
                 r="54"
                 fill="none"
-                stroke={meeting.kind === 'emergency' ? '#ff3557' : '#ffb020'}
+                stroke={meeting.kind === 'emergency' ? '#ffb020' : '#ff3557'}
                 strokeWidth="8"
                 strokeLinecap="round"
                 strokeDasharray={`${2 * Math.PI * 54}`}
@@ -188,7 +195,7 @@ export function MeetingOverlay({
       {gathering && isCaller ? (
         <div className="relative mx-auto w-full max-w-md">
           <Button
-            variant={meeting.kind === 'emergency' ? 'emergency' : 'report'}
+            variant={meeting.kind === 'emergency' ? 'report' : 'emergency'}
             onClick={onStart}
           >
             Everyone is here — start timer

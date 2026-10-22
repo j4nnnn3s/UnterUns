@@ -117,6 +117,8 @@ export interface SabotageDeviceSnapshot {
   room: string
   active: boolean
   endsAtMs: number | null
+  status: GameStatus
+  meeting: Meeting | null
   gameEnded: boolean
   winner: 'imposters' | 'crewmates' | null
   winReason: WinReason | null

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '../components/Button'
+import { MuteToggle } from '../components/MuteToggle'
 import { Screen } from '../components/Screen'
-import { playMeetingAlarm, vibrateForMeeting } from '../audio'
 import { useGame } from '../game/context'
 import { secondsRemaining, useNow } from '../game/time'
 
@@ -10,20 +10,17 @@ export function SabotageDeviceScreen() {
   const [busy, setBusy] = useState(false)
   const now = useNow(500)
 
-  useEffect(() => {
-    if (!device?.active) return
-    playMeetingAlarm()
-    vibrateForMeeting()
-  }, [device?.active])
-
   if (!device || device.kind !== 'sabotage') return null
   const remaining = secondsRemaining(device.endsAtMs, now)
 
   return (
     <Screen className="text-center">
-      <p className="text-xs font-bold uppercase tracking-[0.35em] text-crew">
-        Sabotage device
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs font-bold uppercase tracking-[0.35em] text-crew">
+          Sabotage device
+        </p>
+        <MuteToggle />
+      </div>
       <h1 className="mt-3 font-display text-3xl font-extrabold uppercase">
         {device.name}
       </h1>

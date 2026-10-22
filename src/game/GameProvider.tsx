@@ -2,11 +2,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { playMeetingAlarm, unlockAudio, vibrateForMeeting } from '../audio'
+import { startAlarm, stopAlarm, unlockAudio, type AlarmKind } from '../audio'
+import { SabotageStrobe } from '../components/SabotageStrobe'
 import type { ConnectedDevice, DashboardSnapshot, Game, Player, SabotageDeviceSnapshot } from '../types'
 import { releaseWakeLock, requestWakeLock } from '../wakelock'
 import {
@@ -19,7 +19,6 @@ import {
   deactivateSabotage as fixSabotage,
   endMeeting,
   getKillCandidates as loadKillCandidates,
-  getPlayerId,
   getSavedName,
   joinGame,
   leaveGame,
@@ -49,8 +48,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [device, setDevice] = useState<SabotageDeviceSnapshot | null>(null)
   const [dashboard, setDashboard] = useState<DashboardSnapshot | null>(null)
   const [savedName] = useState(() => getSavedName())
-  const lastMeetingId = useRef<string | null>(null)
-  const lastSabotageId = useRef<string | null>(null)
 
   const me = useMemo(
     () => players.find((player) => player.id === session?.playerId) ?? null,
@@ -118,27 +115,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, [deviceSession])
 
   useEffect(() => {
-    const meeting = game?.meeting
-    if (game?.status === 'meeting' && meeting && meeting.id !== lastMeetingId.current) {
-      lastMeetingId.current = meeting.id
-      if (meeting.triggeredById !== getPlayerId()) {
-        playMeetingAlarm()
-        vibrateForMeeting()
-      }
-    }
-    if (game?.status !== 'meeting') {
-      lastMeetingId.current = meeting?.id ?? lastMeetingId.current
-    }
-  }, [game?.status, game?.meeting])
+    const kind = desiredAlarm(game, dashboard, device)
+    if (kind) startAlarm(kind)
+    else stopAlarm()
+  }, [game, dashboard, device])
 
-  useEffect(() => {
-    const sabotage = game?.activeSabotage
-    if (sabotage && sabotage.id !== lastSabotageId.current) {
-      lastSabotageId.current = sabotage.id
-      playMeetingAlarm()
-      vibrateForMeeting()
-    }
-  }, [game?.activeSabotage])
+  useEffect(() => () => stopAlarm(), [])
 
   useEffect(() => {
     if (game?.status === 'playing' || game?.status === 'meeting') {
@@ -181,6 +163,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           setDevice(null)
           setDashboard(null)
           const next = await createGame(name, hostPassword)
+          unlockAudio()
           setLoading(true)
           setSession(next)
         }),
@@ -191,6 +174,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           setDevice(null)
           setDashboard(null)
           const next = await joinGame(code, name)
+          unlockAudio()
           setLoading(true)
           setSession(next)
         }),
@@ -337,6 +321,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           setDevice(next.device.kind === 'sabotage' ? next.device : null)
           setDashboard(next.device.kind === 'dashboard' ? next.device : null)
           setDeviceSession(next.deviceCode)
+          unlockAudio()
         }),
       leaveDevice: () => {
         clearDeviceSession()
@@ -353,8 +338,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
         run(async () => {
           if (!game || !me || game.status === 'meeting') return
           await callMeeting(game.code, kind, reportedPlayerId)
-          playMeetingAlarm()
-          vibrateForMeeting()
         }),
       startMeeting: () =>
         run(async () => {
@@ -387,5 +370,44 @@ export function GameProvider({ children }: { children: ReactNode }) {
     ],
   )
 
-  return <GameContext.Provider value={value}>{children}</GameContext.Provider>
+  const strobeActive = sabotageStrobeActive(game, dashboard, device)
+
+  return (
+    <GameContext.Provider value={value}>
+      {children}
+      <SabotageStrobe active={strobeActive} />
+    </GameContext.Provider>
+  )
+}
+
+function desiredAlarm(
+  game: Game | null,
+  dashboard: DashboardSnapshot | null,
+  device: SabotageDeviceSnapshot | null,
+): AlarmKind | null {
+  const status = game?.status ?? dashboard?.status ?? device?.status ?? null
+  const meeting = game?.meeting ?? dashboard?.meeting ?? device?.meeting ?? null
+  if (status === 'meeting' && meeting && meeting.startedAtMs === null) {
+    return meeting.kind
+  }
+  if (status === 'meeting' || status === 'ended') return null
+  if (game?.activeSabotage) return 'sabotage'
+  if (device?.active) return 'sabotage'
+  if (dashboard?.sabotages.some((item) => item.active)) return 'sabotage'
+  return null
+}
+
+function sabotageStrobeActive(
+  game: Game | null,
+  dashboard: DashboardSnapshot | null,
+  device: SabotageDeviceSnapshot | null,
+): boolean {
+  if (game?.status === 'ended' || dashboard?.status === 'ended' || device?.gameEnded) {
+    return false
+  }
+  return Boolean(
+    game?.activeSabotage ||
+      device?.active ||
+      dashboard?.sabotages.some((item) => item.active),
+  )
 }
