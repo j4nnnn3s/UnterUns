@@ -950,7 +950,6 @@ export class GameEngine {
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
     const game = structuredClone(room.game)
-    if (viewer.role !== 'imposter') game.globalKillCooldownEndsAtMs = null
     if (viewer.role !== 'imposter') game.sabotageCooldownEndsAtMs = null
     if (!viewer.isHost) game.dashboardCode = ''
     game.voteCandidates =

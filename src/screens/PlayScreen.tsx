@@ -49,6 +49,7 @@ export function PlayScreen() {
   const [confirm, setConfirm] = useState<'lobby' | 'leave' | null>(null)
   const [info, setInfo] = useState<InfoKey | null>(null)
   const [dismissedEjection, setDismissedEjection] = useState('')
+  const [disguiseAsCrew, setDisguiseAsCrew] = useState(false)
   const now = useNow(500)
 
   const revealKey = useMemo(
@@ -189,14 +190,35 @@ export function PlayScreen() {
         </div>
         <div className="flex items-center gap-2">
           {isImposter ? (
-            <button
-              type="button"
-              onClick={() => setShowImposters(true)}
-              aria-haspopup="dialog"
-              className="rounded-full bg-imposter/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-imposter"
-            >
-              Imposter
-            </button>
+            disguiseAsCrew ? (
+              <button
+                type="button"
+                onClick={() => setDisguiseAsCrew(false)}
+                aria-label="Show imposter identity"
+                className="rounded-full bg-crew/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-crew"
+              >
+                Crewmate
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDisguiseAsCrew(true)}
+                  aria-label="Hide imposter identity"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-line bg-panel-2 text-muted"
+                >
+                  <EyeOffIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowImposters(true)}
+                  aria-haspopup="dialog"
+                  className="rounded-full bg-imposter/15 px-3 py-1 text-xs font-bold uppercase tracking-wider text-imposter"
+                >
+                  Imposter
+                </button>
+              </div>
+            )
           ) : isGhost ? (
             <span className="rounded-full bg-fog/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-muted">
               Ghost
@@ -210,11 +232,18 @@ export function PlayScreen() {
         </div>
       </header>
 
+      <CooldownStatus
+        className="mt-3"
+        label="Global cooldown"
+        remaining={globalKillRemaining}
+        onClick={() => setInfo('globalKill')}
+      />
+
       <button
         type="button"
         onClick={() => setInfo('tasks')}
         aria-haspopup="dialog"
-        className="mt-5 w-full rounded-3xl border border-line bg-panel px-4 py-4 text-left"
+        className="mt-3 w-full rounded-3xl border border-line bg-panel px-4 py-4 text-left"
       >
         <div className="flex items-end justify-between">
           <p className="text-xs font-bold uppercase tracking-[0.25em] text-muted">
@@ -233,30 +262,7 @@ export function PlayScreen() {
         </p>
       </button>
 
-      {isImposter ? (
-        <section className="mt-3 grid grid-cols-2 gap-2">
-          <CooldownStatus
-            label="Global cooldown"
-            remaining={globalKillRemaining}
-            onClick={() => setInfo('globalKill')}
-          />
-          <CooldownStatus
-            label="Your cooldown"
-            remaining={personalKillRemaining}
-            readyLabel={
-              globalKillRemaining > 0 ? 'Wait for the global cooldown' : undefined
-            }
-            onClick={() => setInfo('personalKill')}
-          />
-          <div className="col-span-2">
-            <CooldownStatus
-              label="Sabotage cooldown"
-              remaining={sabotageCooldownRemaining}
-              onClick={() => setInfo('sabotage')}
-            />
-          </div>
-        </section>
-      ) : isGhost ? (
+      {isGhost ? (
         <section className="mt-3 rounded-2xl border border-fog/10 bg-fog/5 px-4 py-3">
           <p className="text-xs font-bold uppercase tracking-[0.25em] text-muted">
             Ghost
@@ -350,6 +356,15 @@ export function PlayScreen() {
           >
             {reportingKill ? 'Checking...' : 'I was killed'}
           </Button>
+        ) : isImposter && me.lifeStatus === 'alive' ? (
+          <Button
+            variant="danger"
+            tabIndex={-1}
+            aria-disabled="true"
+            className="pointer-events-none"
+          >
+            I was killed
+          </Button>
         ) : null}
         {canCallMeeting ? (
           <div className="space-y-2">
@@ -397,6 +412,23 @@ export function PlayScreen() {
             Leave game
           </Button>
         )}
+        {isImposter ? (
+          <div className="grid grid-cols-2 gap-2">
+            <CooldownStatus
+              label="Your cooldown"
+              remaining={personalKillRemaining}
+              readyLabel={
+                globalKillRemaining > 0 ? 'Wait for the global cooldown' : undefined
+              }
+              onClick={() => setInfo('personalKill')}
+            />
+            <CooldownStatus
+              label="Sabotage cooldown"
+              remaining={sabotageCooldownRemaining}
+              onClick={() => setInfo('sabotage')}
+            />
+          </div>
+        ) : null}
         {isImposter && game.sabotages.length > 0 ? (
           <section className="pt-3">
             <p className="mb-2 text-center text-[0.65rem] font-bold uppercase tracking-[0.25em] text-muted">
@@ -783,15 +815,37 @@ export function PlayScreen() {
   )
 }
 
+function EyeOffIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M9.9 5.1A10.6 10.6 0 0 1 12 5c7 0 10 7 10 7a13.1 13.1 0 0 1-1.7 2.5" />
+      <path d="M6.1 6.1A13.4 13.4 0 0 0 2 12s3 7 10 7a10.4 10.4 0 0 0 4.4-.9" />
+    </svg>
+  )
+}
+
 function CooldownStatus({
   label,
   remaining,
   readyLabel,
+  className,
   onClick,
 }: {
   label: string
   remaining: number
   readyLabel?: string
+  className?: string
   onClick: () => void
 }) {
   const ready = remaining <= 0 && !readyLabel
@@ -800,7 +854,10 @@ function CooldownStatus({
       type="button"
       onClick={onClick}
       aria-haspopup="dialog"
-      className="w-full rounded-xl border border-line bg-panel px-3 py-2 text-left"
+      className={cn(
+        'w-full rounded-xl border border-line bg-panel px-3 py-2 text-left',
+        className,
+      )}
     >
       <p className="text-[0.65rem] font-bold uppercase tracking-[0.16em] text-muted">
         {label}
@@ -824,7 +881,7 @@ const INFO: Record<InfoKey, { title: string; message: string }> = {
   globalKill: {
     title: 'Global kill cooldown',
     message:
-      'No imposter can kill until this shared timer ends. It starts at the beginning of a round and again after every meeting.',
+      'Nobody can be killed until this shared timer ends. It starts at the beginning of a round and again after every meeting.',
   },
   personalKill: {
     title: 'Your kill cooldown',

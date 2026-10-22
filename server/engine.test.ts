@@ -279,7 +279,10 @@ test('tracks private ghost state and per-imposter kill cooldowns', () => {
       engine.snapshot(code, imposters[1]!).game.globalKillCooldownEndsAtMs,
       now + 60_000,
     )
-    assert.equal(engine.snapshot(code, callerId).game.globalKillCooldownEndsAtMs, null)
+    assert.equal(
+      engine.snapshot(code, callerId).game.globalKillCooldownEndsAtMs,
+      now + 60_000,
+    )
   } finally {
     Date.now = originalNow
   }
