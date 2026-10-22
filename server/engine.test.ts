@@ -159,36 +159,48 @@ test('rejects late joins but permits an existing player to resume', () => {
 })
 
 test('updates tasks and meeting state on the server', () => {
-  const engine = new GameEngine()
-  const code = engine.createGame('host-id-123', 'Host').game.code
-  engine.joinGame('player-id-456', code, 'Player')
-  engine.joinGame('player-id-789', code, 'Player Two')
-  engine.startPregame(code, 'host-id-123')
-  engine.startGame(code, 'host-id-123')
+  const originalNow = Date.now
+  let now = 1_100_000
+  Date.now = () => now
+  try {
+    const engine = new GameEngine()
+    const code = engine.createGame('host-id-123', 'Host').game.code
+    engine.joinGame('player-id-456', code, 'Player')
+    engine.joinGame('player-id-789', code, 'Player Two')
+    engine.startPregame(code, 'host-id-123')
+    engine.startGame(code, 'host-id-123')
+    assert.equal(engine.snapshot(code, 'host-id-123').game.roundId, 1)
+    assert.equal(engine.snapshot(code, 'host-id-123').game.roundAlivePlayerIds.length, 3)
 
-  const taskId = engine.snapshot(code, 'player-id-456').game.tasks[0]!.id
-  engine.toggleTask(code, 'player-id-456', taskId)
-  const completed = engine.snapshot(code, 'player-id-456').game.tasks[0]!
-  assert.equal(completed.done, true)
-  assert.equal(completed.doneByName, 'Player')
-  assert.equal(
-    engine.snapshot(code, 'host-id-123').game.tasks.every((task) => !task.done),
-    true,
-  )
+    const taskId = engine.snapshot(code, 'player-id-456').game.tasks[0]!.id
+    engine.toggleTask(code, 'player-id-456', taskId)
+    const completed = engine.snapshot(code, 'player-id-456').game.tasks[0]!
+    assert.equal(completed.done, true)
+    assert.equal(completed.doneByName, 'Player')
+    assert.equal(
+      engine.snapshot(code, 'host-id-123').game.tasks.every((task) => !task.done),
+      true,
+    )
 
-  engine.callMeeting(code, 'player-id-456', 'body')
-  const gathering = engine.snapshot(code, 'host-id-123').game
-  assert.equal(gathering.status, 'meeting')
-  assert.equal(gathering.meeting?.startedAtMs, null)
-  assert.throws(() => engine.startMeeting(code, 'host-id-123'), /player who called/)
-  engine.startMeeting(code, 'player-id-456')
-  const callerMeeting = engine.snapshot(code, 'player-id-456').game.meeting
-  const hostMeeting = engine.snapshot(code, 'host-id-123').game.meeting
-  assert.equal(typeof hostMeeting?.startedAtMs, 'number')
-  assert.equal(hostMeeting?.startedAtMs, callerMeeting?.startedAtMs)
-  assert.throws(() => engine.endMeeting(code, 'player-id-789'), /host or meeting caller/)
-  engine.endMeeting(code, 'player-id-456')
-  assert.equal(engine.snapshot(code, 'host-id-123').game.status, 'playing')
+    now += 60_001
+    engine.callMeeting(code, 'player-id-456', 'emergency')
+    const gathering = engine.snapshot(code, 'host-id-123').game
+    assert.equal(gathering.status, 'meeting')
+    assert.equal(gathering.meeting?.startedAtMs, null)
+    assert.throws(() => engine.startMeeting(code, 'host-id-123'), /player who called/)
+    engine.startMeeting(code, 'player-id-456')
+    const callerMeeting = engine.snapshot(code, 'player-id-456').game.meeting
+    const hostMeeting = engine.snapshot(code, 'host-id-123').game.meeting
+    assert.equal(typeof hostMeeting?.startedAtMs, 'number')
+    assert.equal(hostMeeting?.startedAtMs, callerMeeting?.startedAtMs)
+    assert.throws(() => engine.endMeeting(code, 'player-id-789'), /host or meeting caller/)
+    engine.endMeeting(code, 'player-id-456')
+    const after = engine.snapshot(code, 'host-id-123').game
+    assert.equal(after.status, 'playing')
+    assert.equal(after.roundId, 2)
+  } finally {
+    Date.now = originalNow
+  }
 })
 
 test('tracks private ghost state and per-imposter kill cooldowns', () => {
@@ -236,7 +248,17 @@ test('tracks private ghost state and per-imposter kill cooldowns', () => {
     assert.equal(engine.snapshot(code, victimId).players.find((p) => p.id === victimId)?.lifeStatus, 'dying')
     assert.equal(engine.snapshot(code, callerId).players.find((p) => p.id === victimId)?.lifeStatus, 'alive')
     assert.equal(engine.killCandidates(code, callerId).length, 1)
-    assert.throws(() => engine.callMeeting(code, victimId, 'body'), /Ghosts cannot/)
+    assert.throws(() => engine.callMeeting(code, victimId, 'body', killerId), /Ghosts cannot/)
+    assert.equal(
+      engine.snapshot(code, victimId).players.find((player) => player.id === victimId)
+        ?.killedInRoundId,
+      1,
+    )
+    assert.equal(
+      engine.snapshot(code, callerId).players.find((player) => player.id === victimId)
+        ?.killedInRoundId,
+      null,
+    )
 
     now += 30_000
     engine.makeGhost(code, victimId)
@@ -246,9 +268,13 @@ test('tracks private ghost state and per-imposter kill cooldowns', () => {
     engine.toggleTask(code, victimId, taskId)
     assert.equal(engine.snapshot(code, victimId).game.tasks[0]?.done, true)
 
-    engine.callMeeting(code, callerId, 'body')
+    engine.callMeeting(code, callerId, 'body', victimId)
+    assert.equal(engine.snapshot(code, callerId).game.meeting?.reportedPlayerName, ghostView.players.find((player) => player.id === victimId)?.name)
     engine.startMeeting(code, callerId)
     engine.endMeeting(code, callerId)
+    const afterMeeting = engine.snapshot(code, callerId).game
+    assert.equal(afterMeeting.roundAlivePlayerIds.includes(victimId), false)
+    assert.throws(() => engine.callMeeting(code, callerId, 'body', victimId), /No body found/)
     assert.equal(
       engine.snapshot(code, imposters[1]!).game.globalKillCooldownEndsAtMs,
       now + 60_000,
@@ -323,6 +349,13 @@ test('runs trust, code, and device sabotages through cooldown and victory', () =
     )
 
     now += 60_000
+    engine.activateSabotage(code, imposterId, 'reactor')
+    assert.throws(
+      () => engine.callMeeting(code, crewIds[0]!, 'emergency'),
+      /during a sabotage/,
+    )
+    engine.deactivateSabotage(code, crewIds[0]!, 'ABCDEFGHJK')
+    now += 60_000
     engine.callMeeting(code, crewIds[0]!, 'emergency')
     assert.throws(
       () => engine.activateSabotage(code, imposterId, 'reactor'),
@@ -363,7 +396,61 @@ test('runs trust, code, and device sabotages through cooldown and victory', () =
   }
 })
 
-test('splits emergency meetings from unlimited body reports', () => {
+test('body reports end an active sabotage and only accept current-round kills', () => {
+  const originalNow = Date.now
+  let now = 3_500_000
+  Date.now = () => now
+  try {
+    const engine = new GameEngine()
+    const ids = ['host-id-123', 'player-id-456', 'player-id-789', 'player-id-101']
+    const code = engine.createGame(ids[0]!, 'Host').game.code
+    ids.slice(1).forEach((id, index) => engine.joinGame(id, code, `Player ${index + 1}`))
+    engine.updateSettings(code, ids[0]!, {
+      impostorCount: 1,
+      initialKillCooldownSeconds: 30,
+      sabotages: [
+        {
+          id: 'lights',
+          name: 'Lights',
+          room: 'Hallway',
+          timerSeconds: 120,
+          method: 'trust',
+          deactivationCode: '',
+          deviceCode: '',
+        },
+      ],
+    })
+    engine.startPregame(code, ids[0]!)
+    engine.startGame(code, ids[0]!)
+
+    const roles = new Map(
+      ids.map((id) => [
+        id,
+        engine.snapshot(code, id).players.find((player) => player.id === id)?.role,
+      ]),
+    )
+    const imposters = ids.filter((id) => roles.get(id) === 'imposter')
+    const crewmates = ids.filter((id) => roles.get(id) === 'crewmate')
+    engine.activateSabotage(code, imposters[0]!, 'lights')
+    assert.throws(
+      () => engine.callMeeting(code, crewmates[1]!, 'emergency'),
+      /during a sabotage/,
+    )
+
+    now += 30_001
+    engine.reportKilled(code, crewmates[0]!, imposters[0]!)
+    engine.callMeeting(code, crewmates[1]!, 'body', crewmates[0]!)
+    const meeting = engine.snapshot(code, crewmates[1]!).game
+    assert.equal(meeting.status, 'meeting')
+    assert.equal(meeting.activeSabotage, null)
+    assert.equal(meeting.meeting?.kind, 'body')
+    assert.equal(meeting.meeting?.reportedPlayerId, crewmates[0]!)
+  } finally {
+    Date.now = originalNow
+  }
+})
+
+test('splits emergency meetings from current-round body reports', () => {
   const originalNow = Date.now
   let now = 3_000_000
   Date.now = () => now
@@ -377,38 +464,56 @@ test('splits emergency meetings from unlimited body reports', () => {
       emergencyMeetingsPerPlayer: 2,
       initialEmergencyCooldownSeconds: 60,
       postMeetingEmergencyCooldownSeconds: 60,
+      initialKillCooldownSeconds: 30,
+      postMeetingKillCooldownSeconds: 30,
     })
     engine.startPregame(code, ids[0]!)
     engine.startGame(code, ids[0]!)
 
+    const roles = new Map(
+      ids.map((id) => [
+        id,
+        engine.snapshot(code, id).players.find((player) => player.id === id)?.role,
+      ]),
+    )
+    const imposters = ids.filter((id) => roles.get(id) === 'imposter')
+    const crewmates = ids.filter((id) => roles.get(id) === 'crewmate')
+
     assert.throws(
-      () => engine.callMeeting(code, ids[1]!, 'emergency'),
+      () => engine.callMeeting(code, crewmates[1]!, 'emergency'),
       /still on cooldown/,
     )
-    engine.callMeeting(code, ids[1]!, 'body')
-    engine.startMeeting(code, ids[1]!)
-    engine.endMeeting(code, ids[1]!)
     assert.throws(
-      () => engine.callMeeting(code, ids[1]!, 'emergency'),
+      () => engine.callMeeting(code, crewmates[1]!, 'body', crewmates[0]!),
+      /No body found/,
+    )
+    assert.equal(engine.snapshot(code, crewmates[1]!).game.status, 'playing')
+
+    now += 30_001
+    engine.reportKilled(code, crewmates[0]!, imposters[0]!)
+    engine.callMeeting(code, crewmates[1]!, 'body', crewmates[0]!)
+    engine.startMeeting(code, crewmates[1]!)
+    engine.endMeeting(code, crewmates[1]!)
+    assert.throws(
+      () => engine.callMeeting(code, crewmates[1]!, 'emergency'),
       /still on cooldown/,
+    )
+    assert.throws(
+      () => engine.callMeeting(code, crewmates[1]!, 'body', crewmates[0]!),
+      /No body found/,
     )
 
     now += 60_000
-    engine.callMeeting(code, ids[1]!, 'body')
-    engine.endMeeting(code, ids[1]!)
+    engine.callMeeting(code, crewmates[1]!, 'emergency')
+    engine.endMeeting(code, crewmates[1]!)
     now += 60_000
-    engine.callMeeting(code, ids[1]!, 'emergency')
-    engine.endMeeting(code, ids[1]!)
-    now += 60_000
-    engine.callMeeting(code, ids[1]!, 'emergency')
-    engine.endMeeting(code, ids[1]!)
+    engine.callMeeting(code, crewmates[1]!, 'emergency')
+    engine.endMeeting(code, crewmates[1]!)
     now += 60_000
     assert.throws(
-      () => engine.callMeeting(code, ids[1]!, 'emergency'),
+      () => engine.callMeeting(code, crewmates[1]!, 'emergency'),
       /no emergency meetings left/,
     )
-    engine.callMeeting(code, ids[2]!, 'body')
-    assert.equal(engine.snapshot(code, ids[0]!).game.meeting?.kind, 'body')
   } finally {
     Date.now = originalNow
   }
@@ -527,7 +632,8 @@ test('caller can vote someone out and living counts decide the round', () => {
     const imposters = ids.filter((id) => roles.get(id) === 'imposter')
     const crewmates = ids.filter((id) => roles.get(id) === 'crewmate')
 
-    engine.callMeeting(code, crewmates[0]!, 'body')
+    now += 60_001
+    engine.callMeeting(code, crewmates[0]!, 'emergency')
     assert.throws(() => engine.voteOut(code, crewmates[1]!, imposters[0]!), /who called/)
     const ejection = engine.voteOut(code, crewmates[0]!, imposters[0]!)
     assert.equal(ejection.role, 'imposter')

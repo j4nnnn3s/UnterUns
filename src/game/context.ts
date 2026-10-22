@@ -49,7 +49,7 @@ export interface GameContextValue {
   connectDevice: (deviceCode: string) => Promise<void>
   leaveDevice: () => void
   deactivateFromDevice: () => Promise<void>
-  triggerMeeting: (kind: 'emergency' | 'body') => Promise<void>
+  triggerMeeting: (kind: 'emergency' | 'body', reportedPlayerId?: string) => Promise<void>
   startMeeting: () => Promise<void>
   dismissMeeting: () => Promise<void>
   voteOut: (targetId: string) => Promise<void>

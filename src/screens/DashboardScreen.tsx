@@ -36,8 +36,12 @@ export function DashboardScreen() {
         <WinBanner winner={dashboard.winner} reason={dashboard.winReason} />
       ) : meeting ? (
         <p className="mt-4 rounded-2xl border border-warn/40 bg-warn/10 px-4 py-3 text-center text-sm font-semibold text-warn">
-          {meeting.kind === 'emergency' ? 'Emergency meeting' : 'Body found'} · called by{' '}
-          {meeting.triggeredByName}
+          {meeting.kind === 'emergency'
+            ? 'Emergency meeting'
+            : meeting.reportedPlayerName
+              ? `Body found: ${meeting.reportedPlayerName}`
+              : 'Body found'}{' '}
+          · called by {meeting.triggeredByName}
         </p>
       ) : dashboard.ejection ? (
         <p className="mt-4 rounded-2xl border border-line bg-panel px-4 py-3 text-center text-sm text-fog">

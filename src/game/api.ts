@@ -244,8 +244,13 @@ export async function toggleTask(code: string, taskId: string): Promise<void> {
 export async function callMeeting(
   code: string,
   kind: 'emergency' | 'body',
+  reportedPlayerId?: string,
 ): Promise<void> {
-  await request('call_meeting', { code, kind })
+  await request('call_meeting', {
+    code,
+    kind,
+    ...(reportedPlayerId ? { reportedPlayerId } : {}),
+  })
 }
 
 export async function getKillCandidates(code: string): Promise<KillCandidate[]> {

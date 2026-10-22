@@ -36,6 +36,13 @@ export function PlayScreen() {
   const [killCandidates, setKillCandidates] = useState<KillCandidate[] | null>(null)
   const [selectedKillerId, setSelectedKillerId] = useState('')
   const [reportingKill, setReportingKill] = useState(false)
+  const [bodyCandidates, setBodyCandidates] = useState<Array<{ id: string; name: string }> | null>(
+    null,
+  )
+  const [selectedBodyId, setSelectedBodyId] = useState('')
+  const [reportingBody, setReportingBody] = useState(false)
+  const [noBodyFound, setNoBodyFound] = useState(false)
+  const [hatMeetingId, setHatMeetingId] = useState('')
   const [deactivationCode, setDeactivationCode] = useState('')
   const [sabotageBusy, setSabotageBusy] = useState(false)
   const [confirm, setConfirm] = useState<'lobby' | 'leave' | null>(null)
@@ -73,7 +80,15 @@ export function PlayScreen() {
     canCallMeeting &&
     game.status === 'playing' &&
     emergenciesLeft > 0 &&
-    emergencyCooldownRemaining <= 0
+    emergencyCooldownRemaining <= 0 &&
+    game.activeSabotage === null
+  const showHatReminder =
+    game.status === 'meeting' &&
+    game.meeting !== null &&
+    hatMeetingId !== game.meeting.id &&
+    (me.lifeStatus === 'ghost' || me.lifeStatus === 'dying') &&
+    me.killedInRoundId === game.roundId &&
+    me.id !== game.meeting.reportedPlayerId
   const activeSabotageRemaining = secondsRemaining(game.activeSabotage?.endsAtMs ?? null, now)
   const canDeactivateSabotage =
     me.role === 'crewmate' && me.lifeStatus === 'alive' && game.activeSabotage !== null
@@ -89,6 +104,35 @@ export function PlayScreen() {
       await triggerMeeting(kind)
     } finally {
       setBusy(false)
+    }
+  }
+
+  function openBodyReport() {
+    if (!game || !me) return
+    const aliveIds = new Set(game.roundAlivePlayerIds)
+    const candidates = players
+      .filter((player) => aliveIds.has(player.id) && player.id !== me.id)
+      .map((player) => ({ id: player.id, name: player.name }))
+    setBodyCandidates(candidates)
+    setSelectedBodyId(candidates[0]?.id ?? '')
+  }
+
+  async function submitBodyReport() {
+    if (!selectedBodyId) return
+    setReportingBody(true)
+    try {
+      await triggerMeeting('body', selectedBodyId)
+      setBodyCandidates(null)
+      setSelectedBodyId('')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ''
+      if (message === 'No body found') {
+        setBodyCandidates(null)
+        setSelectedBodyId('')
+        setNoBodyFound(true)
+      }
+    } finally {
+      setReportingBody(false)
     }
   }
 
@@ -198,6 +242,9 @@ export function PlayScreen() {
           <CooldownStatus
             label="Your cooldown"
             remaining={personalKillRemaining}
+            readyLabel={
+              globalKillRemaining > 0 ? 'Wait for the global cooldown' : undefined
+            }
             onClick={() => setInfo('personalKill')}
           />
           <div className="col-span-2">
@@ -318,19 +365,21 @@ export function PlayScreen() {
             >
               {busy
                 ? 'Calling...'
-                : emergenciesLeft === 0
-                  ? 'No emergency meetings left'
-                  : emergencyCooldownRemaining > 0
-                    ? `Emergency in ${formatDuration(emergencyCooldownRemaining)}`
-                    : `Emergency meeting · ${emergenciesLeft} left`}
+                : game.activeSabotage
+                  ? 'Cannot call during sabotage'
+                  : emergenciesLeft === 0
+                    ? 'No emergency meetings left'
+                    : emergencyCooldownRemaining > 0
+                      ? `Emergency in ${formatDuration(emergencyCooldownRemaining)}`
+                      : `Emergency meeting · ${emergenciesLeft} left`}
             </Button>
             <Button
               variant="report"
               size="xl"
-              disabled={busy || game.status !== 'playing'}
-              onClick={() => void onMeeting('body')}
+              disabled={busy || reportingBody || game.status !== 'playing'}
+              onClick={() => openBodyReport()}
             >
-              {busy ? 'Calling...' : 'Body found'}
+              {reportingBody ? 'Checking...' : 'Body found'}
             </Button>
           </div>
         ) : (
@@ -380,6 +429,62 @@ export function PlayScreen() {
           </section>
         ) : null}
       </div>
+
+      {bodyCandidates ? (
+        <div
+          className="fixed inset-0 z-30 grid place-items-center bg-void/80 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="body-title"
+        >
+          <div className="w-full max-w-sm rounded-3xl border border-warn/40 bg-panel px-5 py-5">
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-warn">
+              Report a body
+            </p>
+            <h2
+              id="body-title"
+              className="mt-2 font-display text-2xl font-extrabold uppercase"
+            >
+              Who did you find?
+            </h2>
+            <p className="mt-2 text-sm text-muted">
+              Choose the player, then confirm. Only a kill from this round can
+              start a meeting.
+            </p>
+            <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
+              {bodyCandidates.map((candidate) => (
+                <label
+                  key={candidate.id}
+                  className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-line bg-panel-2 px-3"
+                >
+                  <input
+                    type="radio"
+                    name="body"
+                    value={candidate.id}
+                    checked={selectedBodyId === candidate.id}
+                    onChange={() => setSelectedBodyId(candidate.id)}
+                    className="accent-warn"
+                  />
+                  <span className="font-semibold">{candidate.name}</span>
+                </label>
+              ))}
+            </div>
+            {error ? <p className="mt-3 text-sm text-imposter">{error}</p> : null}
+            <div className="mt-5 space-y-2">
+              <Button
+                variant="report"
+                disabled={!selectedBodyId || reportingBody}
+                onClick={() => void submitBodyReport()}
+              >
+                {reportingBody ? 'Reporting...' : 'Confirm body'}
+              </Button>
+              <Button variant="ghost" onClick={() => setBodyCandidates(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {killCandidates ? (
         <div
@@ -574,6 +679,14 @@ export function PlayScreen() {
         </div>
       ) : null}
 
+      {noBodyFound ? (
+        <InfoDialog
+          title="No body found"
+          message="Play continues. Only a player killed this round can be reported."
+          onClose={() => setNoBodyFound(false)}
+        />
+      ) : null}
+
       {info ? (
         <InfoDialog
           title={INFO[info].title}
@@ -620,6 +733,41 @@ export function PlayScreen() {
           onDeactivateSabotage={deactivateSabotage}
         />
       ) : null}
+
+      {showHatReminder && game.meeting ? (
+        <div
+          className="fixed inset-0 z-[80] grid place-items-center bg-void/85 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hat-title"
+        >
+          <div className="relative w-full max-w-sm rounded-3xl border border-warn/50 bg-panel px-5 py-6">
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-warn">
+              Meeting called
+            </p>
+            <h2
+              id="hat-title"
+              className="mt-2 font-display text-2xl font-extrabold uppercase"
+            >
+              Bring your hat
+            </h2>
+            <p className="mt-3 text-sm text-fog">
+              You were killed this round, but your body wasn't found. Before you
+              go to the meeting, go back to the crime scene and take your hat
+              with you to the meeting hall. Leave it there for the rest of the
+              game and continue as a ghost.
+            </p>
+            <div className="mt-5">
+              <Button
+                variant="report"
+                onClick={() => setHatMeetingId(game.meeting!.id)}
+              >
+                I'll bring my hat
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </Screen>
   )
 }
@@ -627,13 +775,15 @@ export function PlayScreen() {
 function CooldownStatus({
   label,
   remaining,
+  readyLabel,
   onClick,
 }: {
   label: string
   remaining: number
+  readyLabel?: string
   onClick: () => void
 }) {
-  const ready = remaining <= 0
+  const ready = remaining <= 0 && !readyLabel
   return (
     <button
       type="button"
@@ -646,7 +796,7 @@ function CooldownStatus({
         <span className="ml-1 font-semibold text-muted/70">· info</span>
       </p>
       <p className={ready ? 'mt-1 font-bold text-ok' : 'mt-1 font-display font-bold text-warn'}>
-        {ready ? 'Ready' : formatDuration(remaining)}
+        {remaining > 0 ? formatDuration(remaining) : readyLabel ?? 'Ready'}
       </p>
     </button>
   )
@@ -668,7 +818,7 @@ const INFO: Record<InfoKey, { title: string; message: string }> = {
   personalKill: {
     title: 'Your kill cooldown',
     message:
-      'After you kill someone, only you wait this long before you can kill again. Other imposters still have their own timers.',
+      'After you kill someone, only you wait this long before you can kill again. Other imposters still have their own timers. This also stays unavailable while the global cooldown is running.',
   },
   sabotage: {
     title: 'Sabotage cooldown',
@@ -678,7 +828,7 @@ const INFO: Record<InfoKey, { title: string; message: string }> = {
   emergency: {
     title: 'Emergency meetings',
     message:
-      'Each living player has a limited number of emergency meetings per round. They cannot be called during the opening cooldown or during the cooldown after any meeting. Body found reports ignore both limits.',
+      'Each living player has a limited number of emergency meetings per round. They cannot be called during the opening cooldown, during the cooldown after any meeting, or while a sabotage is active. Body found reports ignore those limits and end an active sabotage.',
   },
 }
 

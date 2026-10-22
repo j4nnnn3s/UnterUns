@@ -334,7 +334,13 @@ async function handleMessage(socket: WebSocket, raw: string): Promise<void> {
         const code = requireString(message.code ?? state.code, 'code')
         const kind = message.kind === 'body' ? 'body' : message.kind === 'emergency' ? 'emergency' : null
         if (!kind) throw new Error('Unknown meeting type')
-        engine.callMeeting(code, playerId, kind)
+        engine.callMeeting(
+          code,
+          playerId,
+          kind,
+          kind === 'body' ? requireString(message.reportedPlayerId, 'reportedPlayerId') : undefined,
+        )
+        clearSabotageTimer(code)
         sendOk(socket, message.requestId)
         broadcast(code)
         break

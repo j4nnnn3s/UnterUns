@@ -349,12 +349,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
           if (!deviceSession) return
           await deactivateOnDevice()
         }),
-      triggerMeeting: (kind) =>
+      triggerMeeting: (kind, reportedPlayerId) =>
         run(async () => {
           if (!game || !me || game.status === 'meeting') return
+          await callMeeting(game.code, kind, reportedPlayerId)
           playMeetingAlarm()
           vibrateForMeeting()
-          await callMeeting(game.code, kind)
         }),
       startMeeting: () =>
         run(async () => {

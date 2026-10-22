@@ -31,6 +31,7 @@ export interface ParsedClientMessage {
   hostPassword?: string
   sessionToken?: string
   kind?: string
+  reportedPlayerId?: string
   targetId?: string
   patch?: Record<string, unknown>
 }
@@ -66,6 +67,7 @@ const SHORT_FIELDS = [
   'code',
   'taskId',
   'killerId',
+  'reportedPlayerId',
   'sabotageId',
   'deactivationCode',
   'deviceCode',

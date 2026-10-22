@@ -19,6 +19,8 @@ export interface Meeting {
   kind: MeetingKind
   triggeredById: string
   triggeredByName: string
+  reportedPlayerId: string | null
+  reportedPlayerName: string | null
   startedAtMs: number | null
 }
 
@@ -84,6 +86,7 @@ export interface Game {
   }
   meeting: Meeting | null
   roundId: number
+  roundAlivePlayerIds: string[]
   createdAtMs: number
   serverNowMs: number
 }
@@ -97,6 +100,7 @@ export interface Player {
   lifeStatus: LifeStatus
   deathEndsAtMs: number | null
   killedByName: string | null
+  killedInRoundId: number | null
   killCooldownEndsAtMs: number | null
   emergencyMeetingsUsed: number
 }

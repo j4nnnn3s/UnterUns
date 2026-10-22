@@ -124,6 +124,11 @@ export function MeetingOverlay({
         >
           {gathering ? 'Everyone gather' : 'Discussion'}
         </h2>
+        {meeting.kind === 'body' && meeting.reportedPlayerName ? (
+          <p className="mt-4 font-display text-2xl font-extrabold uppercase text-warn">
+            {meeting.reportedPlayerName}
+          </p>
+        ) : null}
         <p className="mt-4 text-fog">
           Called by <span className="font-bold">{meeting.triggeredByName}</span>
         </p>

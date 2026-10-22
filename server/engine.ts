@@ -22,6 +22,8 @@ export interface Meeting {
   kind: MeetingKind
   triggeredById: string
   triggeredByName: string
+  reportedPlayerId: string | null
+  reportedPlayerName: string | null
   startedAtMs: number | null
 }
 
@@ -87,6 +89,7 @@ export interface Game {
   }
   meeting: Meeting | null
   roundId: number
+  roundAlivePlayerIds: string[]
   createdAtMs: number
   serverNowMs?: number
 }
@@ -100,6 +103,7 @@ export interface Player {
   lifeStatus: LifeStatus
   deathEndsAtMs: number | null
   killedByName: string | null
+  killedInRoundId: number | null
   killCooldownEndsAtMs: number | null
   emergencyMeetingsUsed: number
 }
@@ -218,6 +222,7 @@ export class GameEngine {
       taskProgress: { done: 0, total: 0 },
       meeting: null,
       roundId: 0,
+      roundAlivePlayerIds: [],
       createdAtMs: Date.now(),
     }
     const host: Player = {
@@ -229,6 +234,7 @@ export class GameEngine {
       lifeStatus: 'alive',
       deathEndsAtMs: null,
       killedByName: null,
+      killedInRoundId: null,
       killCooldownEndsAtMs: null,
       emergencyMeetingsUsed: 0,
     }
@@ -273,6 +279,7 @@ export class GameEngine {
       lifeStatus: existing?.lifeStatus ?? 'alive',
       deathEndsAtMs: existing?.deathEndsAtMs ?? null,
       killedByName: existing?.killedByName ?? null,
+      killedInRoundId: existing?.killedInRoundId ?? null,
       killCooldownEndsAtMs: existing?.killCooldownEndsAtMs ?? null,
       emergencyMeetingsUsed: existing?.emergencyMeetingsUsed ?? 0,
     }
@@ -488,6 +495,7 @@ export class GameEngine {
       player.lifeStatus = 'alive'
       player.deathEndsAtMs = null
       player.killedByName = null
+      player.killedInRoundId = null
       player.killCooldownEndsAtMs = null
       player.emergencyMeetingsUsed = 0
       room.assignments.set(
@@ -513,7 +521,7 @@ export class GameEngine {
     room.game.activeSabotage = null
     room.game.sabotageCooldownEndsAtMs = null
     room.game.winner = null
-    room.game.roundId += 1
+    this.beginRound(room)
     room.game.tasks = room.game.tasks.map((task) => ({
       ...task,
       done: false,
@@ -532,11 +540,13 @@ export class GameEngine {
     room.game.winner = null
     room.game.winReason = null
     room.game.ejection = null
+    room.game.roundAlivePlayerIds = []
     for (const player of room.players.values()) {
       player.role = null
       player.lifeStatus = 'alive'
       player.deathEndsAtMs = null
       player.killedByName = null
+      player.killedInRoundId = null
       player.killCooldownEndsAtMs = null
       player.emergencyMeetingsUsed = 0
     }
@@ -603,6 +613,7 @@ export class GameEngine {
     victim.lifeStatus = 'dying'
     victim.deathEndsAtMs = now + room.game.deathSeconds * 1000
     victim.killedByName = killer.name
+    victim.killedInRoundId = room.game.roundId
     killer.killCooldownEndsAtMs = now + room.game.killerCooldownSeconds * 1000
     this.maybeWinFromLives(room)
     return victim.deathEndsAtMs
@@ -812,7 +823,12 @@ export class GameEngine {
     }
   }
 
-  callMeeting(code: string, playerId: string, kind: MeetingKind): Meeting {
+  callMeeting(
+    code: string,
+    playerId: string,
+    kind: MeetingKind,
+    reportedPlayerId?: string,
+  ): Meeting {
     const room = this.playerRoom(code, playerId)
     if (room.game.status !== 'playing') throw new Error('A meeting cannot be called right now')
     const player = this.getPlayer(room, playerId)
@@ -821,6 +837,9 @@ export class GameEngine {
       throw new Error('Unknown meeting type')
     }
     if (kind === 'emergency') {
+      if (room.game.activeSabotage) {
+        throw new Error('Emergency meetings cannot be called during a sabotage')
+      }
       if (player.emergencyMeetingsUsed >= room.game.emergencyMeetingsPerPlayer) {
         throw new Error('You have no emergency meetings left')
       }
@@ -829,11 +848,19 @@ export class GameEngine {
       }
       player.emergencyMeetingsUsed += 1
     }
+    let reportedPlayer: Player | null = null
+    if (kind === 'body') {
+      reportedPlayer = this.bodyFoundThisRound(room, reportedPlayerId)
+      if (!reportedPlayer) throw new Error('No body found')
+    }
+    if (room.game.activeSabotage) this.finishSabotage(room)
     const meeting: Meeting = {
       id: randomUUID(),
       kind,
       triggeredById: player.id,
       triggeredByName: player.name,
+      reportedPlayerId: reportedPlayer?.id ?? null,
+      reportedPlayerName: reportedPlayer?.name ?? null,
       startedAtMs: null,
     }
     room.game.status = 'meeting'
@@ -888,6 +915,7 @@ export class GameEngine {
     if (room.game.status !== 'meeting') return
     room.game.status = 'playing'
     room.game.meeting = null
+    this.beginRound(room)
     room.game.globalKillCooldownEndsAtMs =
       Date.now() + room.game.postMeetingKillCooldownSeconds * 1000
     room.game.emergencyCooldownEndsAtMs =
@@ -908,6 +936,7 @@ export class GameEngine {
         lifeStatus: player.id === viewerId ? player.lifeStatus : 'alive',
         deathEndsAtMs: player.id === viewerId ? player.deathEndsAtMs : null,
         killedByName: player.id === viewerId ? player.killedByName : null,
+        killedInRoundId: player.id === viewerId ? player.killedInRoundId : null,
         killCooldownEndsAtMs:
           player.id === viewerId && player.role === 'imposter'
             ? player.killCooldownEndsAtMs
@@ -968,6 +997,23 @@ export class GameEngine {
 
   playerIds(code: string): string[] {
     return [...this.getRoom(code).players.keys()]
+  }
+
+  private beginRound(room: Room): void {
+    room.game.roundId += 1
+    room.game.roundAlivePlayerIds = [...room.players.values()]
+      .filter((player) => player.lifeStatus === 'alive')
+      .map((player) => player.id)
+  }
+
+  private bodyFoundThisRound(room: Room, reportedPlayerId: string | undefined): Player | null {
+    if (!reportedPlayerId) return null
+    if (!room.game.roundAlivePlayerIds.includes(reportedPlayerId)) return null
+    const reported = room.players.get(reportedPlayerId)
+    if (!reported) return null
+    if (reported.killedInRoundId !== room.game.roundId) return null
+    if (reported.lifeStatus !== 'dying' && reported.lifeStatus !== 'ghost') return null
+    return reported
   }
 
   private finishSabotage(room: Room): void {
